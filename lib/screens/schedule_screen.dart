@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../services/widget_service.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -57,6 +58,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _data = data;
         _loading = false;
       });
+      // обновляем виджеты на главном экране (не блокируем UI)
+      WidgetService.update(data, _selected!).catchError((_) {});
     } catch (e) {
       setState(() {
         _error = e.toString();

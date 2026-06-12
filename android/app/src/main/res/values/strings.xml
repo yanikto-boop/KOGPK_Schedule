@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_small_desc">Пары на ближайший день (2×2)</string>
+    <string name="widget_wide_desc">Пары на ближайший день (4×2)</string>
+</resources>
