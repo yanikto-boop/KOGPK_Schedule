@@ -3,10 +3,57 @@ package com.kogpk.schedule_app
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.widget.RemoteViews
-import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+
+private val ISO = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+private fun todayIso(): String = ISO.format(Date())
+
+/** Дата+время конца дня как Date (для сравнения «прошёл ли учебный день»). */
+private fun endDateTime(date: String, end: String): Date? {
+    return try {
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        fmt.parse("$date ${if (end.isBlank()) "23:59" else end}")
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/** Метка дня: «Сегодня» / «Завтра» / «Понедельник, 15 июня». */
+private fun dayLabel(date: String, dm: String, wd: String): String {
+    val today = todayIso()
+    val cal = Calendar.getInstance()
+    cal.add(Calendar.DAY_OF_YEAR, 1)
+    val tomorrow = ISO.format(cal.time)
+    return when (date) {
+        today -> "Сегодня"
+        tomorrow -> "Завтра"
+        else -> if (wd.isNotBlank())
+            wd.replaceFirstChar { it.uppercase() } + ", " + dm
+        else dm
+    }
+}
+
+/** Выбирает день для показа: первый, чей конец ещё не наступил. */
+private fun pickDay(days: JSONArray): JSONObject? {
+    val now = Date()
+    for (i in 0 until days.length()) {
+        val d = days.getJSONObject(i)
+        val end = endDateTime(d.optString("date"), d.optString("end"))
+        if (end != null && end.after(now)) return d
+    }
+    // всё прошло — показываем последний доступный (или ничего)
+    return if (days.length() > 0) days.getJSONObject(days.length() - 1) else null
+}
 
 private fun renderWidget(
     context: Context,
@@ -18,49 +65,62 @@ private fun renderWidget(
     val views = RemoteViews(context.packageName, layoutId)
 
     val group = prefs.getString("w_group", "—") ?: "—"
-    val day = prefs.getString("w_day", "") ?: ""
-    val updated = prefs.getString("w_updated", "") ?: ""
-    val lessonsRaw = prefs.getString("w_lessons", "") ?: ""
-
     views.setTextViewText(R.id.w_group, group)
-    views.setTextViewText(R.id.w_day, day)
-    if (hasUpdated) views.setTextViewText(R.id.w_updated, updated)
+    if (hasUpdated) {
+        val t = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+        views.setTextViewText(R.id.w_updated, t)
+    }
+
+    val day: JSONObject? = try {
+        val raw = prefs.getString("w_days", "[]") ?: "[]"
+        pickDay(JSONArray(raw))
+    } catch (e: Exception) {
+        null
+    }
 
     views.removeAllViews(R.id.list_container)
 
-    val lines = lessonsRaw.split("\n").filter { it.isNotBlank() }
-    if (lines.isEmpty()) {
+    val lessons: JSONArray? = day?.optJSONArray("lessons")
+    if (day == null || lessons == null || lessons.length() == 0) {
+        views.setTextViewText(R.id.w_day, "")
         views.setViewVisibility(R.id.list_container, android.view.View.GONE)
         views.setViewVisibility(R.id.w_empty, android.view.View.VISIBLE)
     } else {
+        views.setTextViewText(
+            R.id.w_day,
+            dayLabel(day.optString("date"), day.optString("dm"), day.optString("wd"))
+        )
         views.setViewVisibility(R.id.list_container, android.view.View.VISIBLE)
         views.setViewVisibility(R.id.w_empty, android.view.View.GONE)
-        val shown = lines.take(maxRows)
-        for (line in shown) {
-            val parts = line.split("|")
-            val num = parts.getOrNull(0) ?: ""
-            val time = parts.getOrNull(1) ?: ""
-            val subject = parts.getOrNull(2) ?: ""
+
+        val total = lessons.length()
+        val shown = minOf(total, maxRows)
+        for (i in 0 until shown) {
+            val parts = lessons.getString(i).split("|")
             val row = RemoteViews(context.packageName, R.layout.widget_row)
-            row.setTextViewText(R.id.row_num, num)
-            row.setTextViewText(R.id.row_time, time)
-            row.setTextViewText(R.id.row_subject, subject)
+            row.setTextViewText(R.id.row_num, parts.getOrNull(0) ?: "")
+            row.setTextViewText(R.id.row_time, parts.getOrNull(1) ?: "")
+            row.setTextViewText(R.id.row_subject, parts.getOrNull(2) ?: "")
             views.addView(R.id.list_container, row)
         }
-        if (lines.size > maxRows) {
+        if (total > maxRows) {
             val more = RemoteViews(context.packageName, R.layout.widget_row)
             more.setTextViewText(R.id.row_num, "")
             more.setTextViewText(R.id.row_time, "")
-            more.setTextViewText(R.id.row_subject, "ещё +${lines.size - maxRows}")
+            more.setTextViewText(R.id.row_subject, "ещё +${total - maxRows}")
             views.addView(R.id.list_container, more)
         }
     }
 
     // тап по виджету открывает приложение
-    val intent: PendingIntent = HomeWidgetLaunchIntent.getActivity(
-        context, MainActivity::class.java
+    val launch = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+    val pi = PendingIntent.getActivity(
+        context, 0, launch,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-    views.setOnClickPendingIntent(R.id.widget_root, intent)
+    views.setOnClickPendingIntent(R.id.widget_root, pi)
 
     return views
 }

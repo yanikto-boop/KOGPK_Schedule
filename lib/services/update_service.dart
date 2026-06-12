@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'native.dart';
 
 class AppUpdate {
   final String version;
@@ -51,6 +54,38 @@ class UpdateService {
       return null;
     }
   }
+
+  /// Качает APK во внешнюю папку приложения, отдаёт прогресс 0..1.
+  /// Возвращает путь к файлу или null при ошибке.
+  static Future<String?> downloadApk(
+      String url, void Function(double) onProgress) async {
+    try {
+      final base = await getExternalStorageDirectory();
+      if (base == null) return null;
+      final dir = Directory('${base.path}/updates');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final file = File('${dir.path}/schedule_update.apk');
+
+      final client = http.Client();
+      final resp = await client.send(http.Request('GET', Uri.parse(url)));
+      final total = resp.contentLength ?? 0;
+      var received = 0;
+      final sink = file.openWrite();
+      await for (final chunk in resp.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) onProgress(received / total);
+      }
+      await sink.close();
+      client.close();
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Запускает системную установку скачанного APK.
+  static Future<void> install(String path) => Native.installApk(path);
 
   static String _normalize(String tag) =>
       tag.trim().replaceFirst(RegExp(r'^[vV]'), '');

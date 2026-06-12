@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../services/update_service.dart';
+import '../services/native.dart';
 import 'admin_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -84,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SnackBar(content: Text('У вас последняя версия')));
       return;
     }
-    showDialog(
+    final go = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
@@ -92,16 +93,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: Text(upd.notes.isEmpty ? 'Обновить приложение?' : upd.notes),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Позже')),
           FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                launchUrl(Uri.parse(upd.downloadUrl),
-                    mode: LaunchMode.externalApplication);
-              },
-              child: const Text('Скачать')),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Обновить')),
         ],
+      ),
+    );
+    if (go == true) _downloadAndInstall(upd);
+  }
+
+  Future<void> _downloadAndInstall(AppUpdate upd) async {
+    final progress = ValueNotifier<double>(0);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Загрузка обновления'),
+        content: ValueListenableBuilder<double>(
+          valueListenable: progress,
+          builder: (_, v, __) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(
+                  value: v > 0 ? v : null, color: AppColors.primary),
+              const SizedBox(height: 12),
+              Text(v > 0 ? '${(v * 100).toStringAsFixed(0)}%' : 'Подключение…',
+                  style: const TextStyle(color: AppColors.textDim)),
+            ],
+          ),
+        ),
+      ),
+    );
+    final path =
+        await UpdateService.downloadApk(upd.downloadUrl, (p) => progress.value = p);
+    if (!mounted) return;
+    Navigator.pop(context); // закрыть прогресс
+    if (path == null) {
+      // фолбэк: открыть страницу релиза в браузере
+      launchUrl(Uri.parse(UpdateService.releasesPage),
+          mode: LaunchMode.externalApplication);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Не удалось скачать — открыл страницу релиза')));
+      return;
+    }
+    await UpdateService.install(path);
+  }
+
+  Future<void> _addWidget() async {
+    if (!await Native.canPinWidget()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Лаунчер не поддерживает добавление виджета. Добавьте вручную: долгий тап по рабочему столу → Виджеты')));
+      return;
+    }
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            const Text('Какой виджет добавить?',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.crop_square, color: AppColors.primary),
+              title: const Text('Компактный 2×2'),
+              subtitle: const Text('Пары на ближайший день'),
+              onTap: () {
+                Navigator.pop(context);
+                Native.pinWidget('small');
+              },
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.crop_16_9, color: AppColors.primary),
+              title: const Text('Широкий 4×2'),
+              subtitle: const Text('Расширенный список пар'),
+              onTap: () {
+                Navigator.pop(context);
+                Native.pinWidget('wide');
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
   }
@@ -113,6 +197,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _tile(Icons.dashboard_customize, 'Добавить виджет на рабочий стол',
+              subtitle: 'Пары на ближайший день — 2×2 или 4×2',
+              onTap: _addWidget),
           _tile(Icons.system_update, 'Проверить обновление',
               subtitle: 'Свежая версия приложения', onTap: _checkUpdate),
           _tile(Icons.telegram, 'Telegram-бот расписания',
