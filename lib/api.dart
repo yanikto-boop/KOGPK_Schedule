@@ -31,7 +31,7 @@ class Api {
         .post(Uri.parse('$base/journal'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'ticket_id': ticketId}))
-        .timeout(const Duration(seconds: 25));
+        .timeout(const Duration(seconds: 55));
     if (resp.statusCode != 200) {
       throw ApiException(_msg(resp));
     }

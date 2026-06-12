@@ -7,8 +7,36 @@ String _todayIso() {
   return '${n.year.toString().padLeft(4, '0')}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
 }
 
-/// Список дней расписания (для групп и преподавателей).
-class ScheduleDayList extends StatelessWidget {
+const _weekdayShort = {
+  'понедельник': 'Пн',
+  'вторник': 'Вт',
+  'среда': 'Ср',
+  'четверг': 'Чт',
+  'пятница': 'Пт',
+  'суббота': 'Сб',
+  'воскресенье': 'Вс',
+};
+
+String _chipWeekday(DaySchedule d) {
+  final parts = d.title.split(',');
+  if (parts.length >= 2) {
+    final wd = parts[1].trim().toLowerCase();
+    return _weekdayShort[wd] ?? wd;
+  }
+  return '';
+}
+
+String _chipDayNum(DaySchedule d) {
+  if (d.date != null) {
+    final p = d.date!.split('-');
+    if (p.length == 3) return p[2];
+  }
+  final left = d.title.split(' ');
+  return left.isNotEmpty ? left[0] : '';
+}
+
+/// Расписание с выбором дня: горизонтальные чипы-даты + один выбранный день.
+class ScheduleDayList extends StatefulWidget {
   final ScheduleData data;
   final bool teacherMode;
   final Future<void> Function() onRefresh;
@@ -20,31 +48,122 @@ class ScheduleDayList extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  State<ScheduleDayList> createState() => _ScheduleDayListState();
+}
+
+class _ScheduleDayListState extends State<ScheduleDayList> {
+  late int _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = _defaultIndex();
+  }
+
+  @override
+  void didUpdateWidget(ScheduleDayList old) {
+    super.didUpdateWidget(old);
+    if (old.data != widget.data) _selected = _defaultIndex();
+  }
+
+  int _defaultIndex() {
+    final days = widget.data.days;
     final today = _todayIso();
-    // Показываем дни от сегодня и далее, плюс прошедшие в конце скрываем —
-    // оставляем все, но прошлые дни приглушаем не будем, просто упорядочены.
-    final days = data.days;
+    // сегодня, если есть; иначе первый будущий день; иначе 0
+    final idxToday = days.indexWhere((d) => d.date == today);
+    if (idxToday >= 0) return idxToday;
+    final idxFuture =
+        days.indexWhere((d) => d.date != null && d.date!.compareTo(today) >= 0);
+    return idxFuture >= 0 ? idxFuture : 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final days = widget.data.days;
     if (days.isEmpty) {
       return _EmptyState(
         icon: Icons.event_busy,
         text: 'Расписание не найдено',
-        onRefresh: onRefresh,
+        onRefresh: widget.onRefresh,
       );
     }
-    return RefreshIndicator(
-      color: AppColors.primary,
-      backgroundColor: AppColors.surface,
-      onRefresh: onRefresh,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-        itemCount: days.length,
-        itemBuilder: (_, i) {
-          final d = days[i];
-          final isToday = d.date == today;
-          return _DayCard(day: d, isToday: isToday, teacherMode: teacherMode);
-        },
-      ),
+    final today = _todayIso();
+    final sel = days[_selected.clamp(0, days.length - 1)];
+    return Column(
+      children: [
+        SizedBox(
+          height: 66,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            itemCount: days.length,
+            itemBuilder: (_, i) {
+              final d = days[i];
+              final isSel = i == _selected;
+              final isToday = d.date == today;
+              final hasLessons =
+                  d.lessons.any((l) => l.subgroups.isNotEmpty);
+              return GestureDetector(
+                onTap: () => setState(() => _selected = i),
+                child: Container(
+                  width: 50,
+                  margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSel ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: isToday && !isSel
+                            ? AppColors.primary
+                            : AppColors.border),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(_chipWeekday(d),
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: isSel ? Colors.white70 : AppColors.textDim)),
+                      const SizedBox(height: 2),
+                      Text(_chipDayNum(d),
+                          style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: isSel ? Colors.white : AppColors.text)),
+                      const SizedBox(height: 3),
+                      Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: hasLessons
+                              ? (isSel ? Colors.white : AppColors.primary)
+                              : Colors.transparent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            color: AppColors.primary,
+            backgroundColor: AppColors.surface,
+            onRefresh: widget.onRefresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+              children: [
+                _DayCard(
+                    day: sel,
+                    isToday: sel.date == today,
+                    teacherMode: widget.teacherMode),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

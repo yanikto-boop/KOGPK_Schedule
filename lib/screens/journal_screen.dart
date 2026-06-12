@@ -50,10 +50,24 @@ class _JournalScreenState extends State<JournalScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = _friendlyError(e);
         _loading = false;
       });
     }
+  }
+
+  String _friendlyError(Object e) {
+    final s = e.toString().toLowerCase();
+    if (s.contains('journal unavailable') ||
+        s.contains('502') ||
+        s.contains('timeout') ||
+        s.contains('connection') ||
+        s.contains('closed')) {
+      return 'Сайт колледжа сейчас не отвечает (журнал там периодически недоступен).\n'
+          'Если зачётка верная — попробуй ещё раз чуть позже.';
+    }
+    if (s.contains('bad ticket')) return 'Неверный номер зачётки';
+    return e.toString();
   }
 
   Future<void> _forget() async {
@@ -118,7 +132,10 @@ class _JournalScreenState extends State<JournalScreen> {
   }
 
   Widget _body() {
-    if (_loading) return const StatusView(message: 'Загружаю оценки…');
+    if (_loading) {
+      return const StatusView(
+          message: 'Загружаю оценки…\nСайт колледжа отвечает медленно, это нормально');
+    }
     if (_error != null) {
       return StatusView(message: _error!, isError: true, onRetry: _load);
     }

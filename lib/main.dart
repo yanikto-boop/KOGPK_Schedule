@@ -4,6 +4,7 @@ import 'screens/schedule_screen.dart';
 import 'screens/teachers_screen.dart';
 import 'screens/journal_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/update_flow.dart';
 
 void main() => runApp(const ScheduleApp());
 
@@ -35,6 +36,17 @@ class _RootScreenState extends State<RootScreen> {
     JournalScreen(),
     SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // автопроверка обновления при запуске (с небольшой задержкой,
+    // чтобы не мешать первой отрисовке)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) UpdateFlow.checkOnLaunch(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

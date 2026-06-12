@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../services/update_service.dart';
+import '../services/update_flow.dart';
 import '../services/native.dart';
 import 'admin_screen.dart';
 
@@ -85,61 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SnackBar(content: Text('У вас последняя версия')));
       return;
     }
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Text('Доступна версия ${upd.version}'),
-        content: Text(upd.notes.isEmpty ? 'Обновить приложение?' : upd.notes),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Позже')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Обновить')),
-        ],
-      ),
-    );
-    if (go == true) _downloadAndInstall(upd);
-  }
-
-  Future<void> _downloadAndInstall(AppUpdate upd) async {
-    final progress = ValueNotifier<double>(0);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Загрузка обновления'),
-        content: ValueListenableBuilder<double>(
-          valueListenable: progress,
-          builder: (_, v, __) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LinearProgressIndicator(
-                  value: v > 0 ? v : null, color: AppColors.primary),
-              const SizedBox(height: 12),
-              Text(v > 0 ? '${(v * 100).toStringAsFixed(0)}%' : 'Подключение…',
-                  style: const TextStyle(color: AppColors.textDim)),
-            ],
-          ),
-        ),
-      ),
-    );
-    final path =
-        await UpdateService.downloadApk(upd.downloadUrl, (p) => progress.value = p);
-    if (!mounted) return;
-    Navigator.pop(context); // закрыть прогресс
-    if (path == null) {
-      // фолбэк: открыть страницу релиза в браузере
-      launchUrl(Uri.parse(UpdateService.releasesPage),
-          mode: LaunchMode.externalApplication);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Не удалось скачать — открыл страницу релиза')));
-      return;
-    }
-    await UpdateService.install(path);
+    if (mounted) UpdateFlow.promptUpdate(context, upd);
   }
 
   Future<void> _addWidget() async {
@@ -202,9 +149,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _addWidget),
           _tile(Icons.system_update, 'Проверить обновление',
               subtitle: 'Свежая версия приложения', onTap: _checkUpdate),
-          _tile(Icons.telegram, 'Telegram-бот расписания',
-              subtitle: 'Уведомления об изменениях',
-              onTap: () => launchUrl(Uri.parse('https://t.me/'),
+          _tile(Icons.smart_toy_outlined, 'Telegram-бот расписания',
+              subtitle: '@Raspisanina_bot — уведомления об изменениях',
+              onTap: () => launchUrl(Uri.parse('https://t.me/Raspisanina_bot'),
+                  mode: LaunchMode.externalApplication)),
+          _tile(Icons.campaign_outlined, 'Канал с расписанием',
+              subtitle: '@Kpk_Raspisanina',
+              onTap: () => launchUrl(Uri.parse('https://t.me/Kpk_Raspisanina'),
                   mode: LaunchMode.externalApplication)),
           const SizedBox(height: 24),
           Center(
