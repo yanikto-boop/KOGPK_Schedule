@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
+import 'screens/home_screen.dart';
 import 'screens/schedule_screen.dart';
 import 'screens/teachers_screen.dart';
 import 'screens/journal_screen.dart';
@@ -29,10 +30,11 @@ class RootScreen extends StatefulWidget {
 }
 
 class _RootScreenState extends State<RootScreen> {
-  int _index = 0;
+  int _index = 2; // стартуем на «Главной» (по центру)
   final _pages = const [
     ScheduleScreen(),
     TeachersScreen(),
+    HomeScreen(),
     JournalScreen(),
     SettingsScreen(),
   ];
@@ -72,7 +74,11 @@ class _RootScreenState extends State<RootScreen> {
             NavigationDestination(
                 icon: Icon(Icons.person_search_outlined),
                 selectedIcon: Icon(Icons.person_search, color: AppColors.primary),
-                label: 'Преподаватели'),
+                label: 'Преподы'),
+            NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home, color: AppColors.primary),
+                label: 'Главная'),
             NavigationDestination(
                 icon: Icon(Icons.assignment_outlined),
                 selectedIcon: Icon(Icons.assignment, color: AppColors.primary),
