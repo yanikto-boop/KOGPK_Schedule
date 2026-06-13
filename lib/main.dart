@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'theme.dart';
+import 'screens/onboarding.dart';
 import 'screens/home_screen.dart';
 import 'screens/schedule_screen.dart';
 import 'screens/teachers_screen.dart';
@@ -31,6 +33,7 @@ class RootScreen extends StatefulWidget {
 
 class _RootScreenState extends State<RootScreen> {
   int _index = 2; // стартуем на «Главной» (по центру)
+  bool _showOnboarding = false;
   final _pages = const [
     ScheduleScreen(),
     TeachersScreen(),
@@ -39,9 +42,23 @@ class _RootScreenState extends State<RootScreen> {
     SettingsScreen(),
   ];
 
+  Future<void> _maybeOnboard() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('onboarding_done') ?? false)) {
+      if (mounted) setState(() => _showOnboarding = true);
+    }
+  }
+
+  Future<void> _finishOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_done', true);
+    if (mounted) setState(() => _showOnboarding = false);
+  }
+
   @override
   void initState() {
     super.initState();
+    _maybeOnboard();
     // автопроверка обновления при запуске (с небольшой задержкой,
     // чтобы не мешать первой отрисовке)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -52,7 +69,7 @@ class _RootScreenState extends State<RootScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final scaffold = Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
@@ -90,6 +107,17 @@ class _RootScreenState extends State<RootScreen> {
           ],
         ),
       ),
+    );
+
+    if (!_showOnboarding) return scaffold;
+    return Stack(
+      children: [
+        scaffold,
+        OnboardingOverlay(
+          onStep: (tab) => setState(() => _index = tab),
+          onDone: _finishOnboarding,
+        ),
+      ],
     );
   }
 }

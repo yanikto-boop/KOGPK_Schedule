@@ -8,6 +8,7 @@ import '../services/update_flow.dart';
 import '../services/native.dart';
 import 'admin_screen.dart';
 import 'transport_screen.dart';
+import 'support_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -155,6 +156,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _tile(Icons.favorite, 'Поддержать проект',
+              subtitle: 'Сбор на публикацию в App Store',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SupportScreen()))),
           _tile(Icons.directions_bus, 'Транспорт Когалыма',
               subtitle: 'Маршрутки: остановки и прибытие в реальном времени',
               onTap: () => Navigator.push(context,

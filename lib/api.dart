@@ -81,6 +81,40 @@ class Api {
         .toList();
   }
 
+  // ── поддержка проекта ──
+  static Future<({double raised, double goal})> donateProgress() async {
+    final r = await _get('/donate/progress');
+    return (
+      raised: (r['raised'] as num).toDouble(),
+      goal: (r['goal'] as num).toDouble(),
+    );
+  }
+
+  static Future<({String paymentId, String url})> donateCreate(
+      int amount) async {
+    final resp = await http
+        .post(Uri.parse('$base/donate'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'amount': amount}))
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode != 200) throw ApiException(_msg(resp));
+    final m = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    return (
+      paymentId: m['payment_id'].toString(),
+      url: m['confirmation_url'].toString()
+    );
+  }
+
+  static Future<({String status, double raised, double goal})> donateCheck(
+      String paymentId) async {
+    final r = await _get('/donate/check?payment_id=$paymentId');
+    return (
+      status: r['status'].toString(),
+      raised: (r['raised'] as num).toDouble(),
+      goal: (r['goal'] as num).toDouble(),
+    );
+  }
+
   // ── admin ──
   static Future<bool> adminLogin(String password) async {
     final resp = await http.post(Uri.parse('$base/admin/login'),
