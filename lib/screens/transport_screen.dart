@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'map_screen.dart';
 
 class TransportScreen extends StatelessWidget {
   const TransportScreen({super.key});
@@ -14,6 +16,14 @@ class TransportScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Транспорт'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.map_outlined),
+              tooltip: 'Карта',
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const BusMapScreen())),
+            ),
+          ],
           bottom: const TabBar(
             indicatorColor: AppColors.primary,
             labelColor: AppColors.primary,
@@ -297,8 +307,19 @@ class _RouteStationsScreenState extends State<RouteStationsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title: Text('Маршрут ${widget.route.number}',
-              style: const TextStyle(fontSize: 16))),
+        title: Text('Маршрут ${widget.route.number}',
+            style: const TextStyle(fontSize: 16)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'На карте',
+            onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => BusMapScreen(route: widget.route))),
+          ),
+        ],
+      ),
       body: _loading
           ? const StatusView(message: 'Загрузка…')
           : _error != null
@@ -406,9 +427,22 @@ class _StationForecastScreenState extends State<StationForecastScreen> {
       fav.remove(id);
     } else {
       fav.add(id);
+      // только что добавленная остановка становится целью виджета
+      await HomeWidget.saveWidgetData<int>('bus_widget_sid', widget.station.id);
+      await HomeWidget.saveWidgetData<String>(
+          'bus_widget_name', widget.station.name);
+      await HomeWidget.updateWidget(
+          androidName: 'BusWidget', name: 'BusWidget');
     }
     await prefs.setStringList('fav_stops', fav);
-    setState(() => _fav = fav.contains(id));
+    if (mounted) {
+      setState(() => _fav = fav.contains(id));
+      if (fav.contains(id)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Остановка в избранном и на виджете'),
+            duration: Duration(seconds: 2)));
+      }
+    }
   }
 
   Future<void> _load() async {

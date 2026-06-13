@@ -60,6 +60,20 @@ class Api {
         .toList();
   }
 
+  static Future<List<List<double>>> busRouteNodes(int rid) async {
+    final r = await _get('/bus/route_nodes?rid=$rid');
+    return (r['points'] as List)
+        .map((p) => (p as List).map((e) => (e as num).toDouble()).toList())
+        .toList();
+  }
+
+  static Future<List<BusVehicle>> busVehicles({String? rids}) async {
+    final r = await _get('/bus/vehicles${rids != null ? '?rids=$rids' : ''}');
+    return (r['vehicles'] as List)
+        .map((e) => BusVehicle.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   static Future<List<BusForecast>> busForecast(int sid) async {
     final r = await _get('/bus/forecast?sid=$sid');
     return (r['forecasts'] as List)
@@ -227,6 +241,24 @@ class BusStation {
         (j['descr'] ?? '').toString(),
         _asDouble(j['lat']),
         _asDouble(j['lng']),
+      );
+}
+
+class BusVehicle {
+  final String id;
+  final double lat;
+  final double lng;
+  final double dir;
+  final String routeNum;
+  final String gosnum;
+  BusVehicle(this.id, this.lat, this.lng, this.dir, this.routeNum, this.gosnum);
+  factory BusVehicle.fromJson(Map<String, dynamic> j) => BusVehicle(
+        (j['id'] ?? '').toString(),
+        _asDouble(j['lat']),
+        _asDouble(j['lng']),
+        _asDouble(j['dir']),
+        (j['route_num'] ?? '').toString(),
+        (j['gosnum'] ?? '').toString(),
       );
 }
 

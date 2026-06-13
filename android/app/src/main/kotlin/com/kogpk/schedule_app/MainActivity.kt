@@ -57,8 +57,11 @@ class MainActivity : FlutterActivity() {
     private fun pinWidget(which: String): Boolean {
         val mgr = getSystemService(AppWidgetManager::class.java) ?: return false
         if (!mgr.isRequestPinAppWidgetSupported) return false
-        val cls = if (which == "wide") ScheduleWidgetWide::class.java
-                  else ScheduleWidgetSmall::class.java
+        val cls = when (which) {
+            "wide" -> ScheduleWidgetWide::class.java
+            "bus" -> BusWidget::class.java
+            else -> ScheduleWidgetSmall::class.java
+        }
         val provider = ComponentName(this, cls)
         return mgr.requestPinAppWidget(provider, null, null)
     }

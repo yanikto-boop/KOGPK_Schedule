@@ -131,6 +131,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Native.pinWidget('wide');
               },
             ),
+            ListTile(
+              leading:
+                  const Icon(Icons.directions_bus, color: AppColors.primary),
+              title: const Text('Автобус 3×2'),
+              subtitle: const Text('Прибытие на избранную остановку'),
+              onTap: () {
+                Navigator.pop(context);
+                Native.pinWidget('bus');
+              },
+            ),
             const SizedBox(height: 12),
           ],
         ),
