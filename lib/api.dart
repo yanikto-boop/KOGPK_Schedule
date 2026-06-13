@@ -38,6 +38,35 @@ class Api {
     return JournalData.fromJson(jsonDecode(utf8.decode(resp.bodyBytes)));
   }
 
+  // ── городской транспорт ──
+  static Future<List<BusRoute>> busRoutes() async {
+    final r = await _get('/bus/routes');
+    return (r['routes'] as List)
+        .map((e) => BusRoute.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<BusStation>> busStations() async {
+    final r = await _get('/bus/stations');
+    return (r['stations'] as List)
+        .map((e) => BusStation.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<BusStation>> busRouteStations(int rid) async {
+    final r = await _get('/bus/route_stations?rid=$rid');
+    return (r['stations'] as List)
+        .map((e) => BusStation.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<BusForecast>> busForecast(int sid) async {
+    final r = await _get('/bus/forecast?sid=$sid');
+    return (r['forecasts'] as List)
+        .map((e) => BusForecast.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   // ── admin ──
   static Future<bool> adminLogin(String password) async {
     final resp = await http.post(Uri.parse('$base/admin/login'),
@@ -163,6 +192,59 @@ class ScheduleData {
     }).toList();
     return ScheduleData(title, days);
   }
+}
+
+int _asInt(Object? v) => v is int ? v : (v is double ? v.toInt() : 0);
+double _asDouble(Object? v) =>
+    v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
+
+class BusRoute {
+  final int id;
+  final String number;
+  final String type;
+  final String from;
+  final String to;
+  BusRoute(this.id, this.number, this.type, this.from, this.to);
+  factory BusRoute.fromJson(Map<String, dynamic> j) => BusRoute(
+        _asInt(j['id']),
+        (j['num'] ?? '').toString(),
+        (j['type'] ?? '').toString(),
+        (j['from'] ?? '').toString(),
+        (j['to'] ?? '').toString(),
+      );
+}
+
+class BusStation {
+  final int id;
+  final String name;
+  final String descr;
+  final double lat;
+  final double lng;
+  BusStation(this.id, this.name, this.descr, this.lat, this.lng);
+  factory BusStation.fromJson(Map<String, dynamic> j) => BusStation(
+        _asInt(j['id']),
+        (j['name'] ?? '').toString(),
+        (j['descr'] ?? '').toString(),
+        _asDouble(j['lat']),
+        _asDouble(j['lng']),
+      );
+}
+
+class BusForecast {
+  final int minutes;
+  final bool arriving;
+  final String routeNum;
+  final String routeType;
+  final String lastStation;
+  BusForecast(this.minutes, this.arriving, this.routeNum, this.routeType,
+      this.lastStation);
+  factory BusForecast.fromJson(Map<String, dynamic> j) => BusForecast(
+        _asInt(j['minutes']),
+        j['arriving'] == true,
+        (j['route_num'] ?? '').toString(),
+        (j['route_type'] ?? '').toString(),
+        (j['last_station'] ?? '').toString(),
+      );
 }
 
 class GradeEntry {

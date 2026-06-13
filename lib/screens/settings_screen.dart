@@ -7,6 +7,7 @@ import '../services/update_service.dart';
 import '../services/update_flow.dart';
 import '../services/native.dart';
 import 'admin_screen.dart';
+import 'transport_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -144,6 +145,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _tile(Icons.directions_bus, 'Транспорт Когалыма',
+              subtitle: 'Маршрутки: остановки и прибытие в реальном времени',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const TransportScreen()))),
           _tile(Icons.dashboard_customize, 'Добавить виджет на рабочий стол',
               subtitle: 'Пары на ближайший день — 2×2 или 4×2',
               onTap: _addWidget),
