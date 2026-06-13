@@ -16,6 +16,13 @@ class Api {
     return ScheduleData.fromJson(r);
   }
 
+  static Future<List<ScheduleChange>> changes(String group) async {
+    final r = await _get('/changes?group=${Uri.encodeQueryComponent(group)}');
+    return (r['changes'] as List)
+        .map((e) => ScheduleChange.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   static Future<List<String>> teachers() async {
     final r = await _get('/teachers');
     return (r['teachers'] as List).cast<String>();
@@ -245,6 +252,18 @@ class ScheduleData {
 int _asInt(Object? v) => v is int ? v : (v is double ? v.toInt() : 0);
 double _asDouble(Object? v) =>
     v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
+
+class ScheduleChange {
+  final String ts; // ISO время обнаружения
+  final String text;
+  final String groupName;
+  ScheduleChange(this.ts, this.text, this.groupName);
+  factory ScheduleChange.fromJson(Map<String, dynamic> j) => ScheduleChange(
+        (j['ts'] ?? '').toString(),
+        (j['text'] ?? '').toString(),
+        (j['group_name'] ?? '').toString(),
+      );
+}
 
 class BusRoute {
   final int id;

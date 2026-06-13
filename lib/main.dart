@@ -8,8 +8,14 @@ import 'screens/teachers_screen.dart';
 import 'screens/journal_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/update_flow.dart';
+import 'services/notif_service.dart';
 
-void main() => runApp(const ScheduleApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const ScheduleApp());
+  // уведомления об изменениях расписания (не блокируем запуск)
+  NotifService.init().catchError((_) {});
+}
 
 class ScheduleApp extends StatelessWidget {
   const ScheduleApp({super.key});

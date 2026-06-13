@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'changes_screen.dart';
 
 /// Пара как единый блок: от начала первой половины до конца второй.
 class PairBlock {
@@ -112,6 +113,12 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Главная'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_outlined),
+            tooltip: 'Изменения расписания',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ChangesScreen())),
+          ),
           if (_group != null)
             Padding(
               padding: const EdgeInsets.only(right: 8),

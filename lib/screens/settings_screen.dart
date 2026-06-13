@@ -9,6 +9,8 @@ import '../services/native.dart';
 import 'admin_screen.dart';
 import 'transport_screen.dart';
 import 'support_screen.dart';
+import 'changes_screen.dart';
+import '../services/notif_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,6 +21,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '';
   int _tapCount = 0;
+  bool _notif = true;
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
@@ -26,6 +29,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     PackageInfo.fromPlatform().then((i) {
       if (mounted) setState(() => _version = '${i.version} (${i.buildNumber})');
+    });
+    NotifService.enabled().then((v) {
+      if (mounted) setState(() => _notif = v);
     });
   }
 
@@ -156,6 +162,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _tile(Icons.sync_alt, 'Изменения расписания',
+              subtitle: 'Что поменялось в расписании твоей группы',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const ChangesScreen()))),
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: SwitchListTile(
+              secondary:
+                  const Icon(Icons.notifications_active, color: AppColors.primary),
+              title: const Text('Уведомления об изменениях',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Пуш, когда в расписании что-то поменялось',
+                  style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+              value: _notif,
+              activeColor: AppColors.primary,
+              onChanged: (v) async {
+                await NotifService.setEnabled(v);
+                setState(() => _notif = v);
+              },
+            ),
+          ),
           _tile(Icons.favorite, 'Поддержать проект',
               subtitle: 'Сбор на публикацию в App Store',
               onTap: () => Navigator.push(context,
