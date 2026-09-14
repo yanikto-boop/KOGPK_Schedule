@@ -6,16 +6,24 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'changes_screen.dart';
 
+/// Половина пары: от звонка на урок до звонка с урока.
+class PairSegment {
+  final DateTime start;
+  final DateTime end;
+  const PairSegment(this.start, this.end);
+}
+
 /// Пара как единый блок: от начала первой половины до конца второй.
 class PairBlock {
   final String num;
-  final DateTime start;
-  final DateTime end;
+  final List<PairSegment> segments;
   final String subject;
   final String room;
   final String teacher;
-  PairBlock(this.num, this.start, this.end, this.subject, this.room,
-      this.teacher);
+  PairBlock(this.num, this.segments, this.subject, this.room, this.teacher);
+
+  DateTime get start => segments.first.start;
+  DateTime get end => segments.last.end;
 }
 
 class HomeScreen extends StatefulWidget {
@@ -61,6 +69,22 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
+  /// "08:00 - 08:45 08:55 - 09:40" -> две половины с перерывом между ними.
+  List<PairSegment> _segments(String time) {
+    final ts = _times(time);
+    if (ts.isEmpty) return [];
+    if (ts.length == 1) return [PairSegment(ts.first, ts.first)];
+    final out = <PairSegment>[];
+    for (var i = 0; i + 1 < ts.length; i += 2) {
+      out.add(PairSegment(ts[i], ts[i + 1]));
+    }
+    // нечётное число меток: последняя всё равно конец пары
+    if (ts.length.isOdd) {
+      out[out.length - 1] = PairSegment(out.last.start, ts.last);
+    }
+    return out;
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -87,11 +111,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (day != null) {
         for (final l in day.lessons) {
           if (l.subgroups.isEmpty) continue;
-          final ts = _times(l.time);
-          if (ts.isEmpty) continue;
+          final segs = _segments(l.time);
+          if (segs.isEmpty) continue;
           final sg = l.subgroups.first;
-          blocks.add(PairBlock(
-              l.num, ts.first, ts.last, sg.subject, sg.room, sg.teacher));
+          blocks.add(
+              PairBlock(l.num, segs, sg.subject, sg.room, sg.teacher));
         }
       }
       blocks.sort((a, b) => a.start.compareTo(b.start));
@@ -175,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
     PairBlock? next;
     String label = '';
     DateTime? target;
+    bool onBreak = false; // перерыв между половинами текущей пары
 
     final first = _today.first;
     final last = _today.last;
@@ -193,8 +218,10 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!now.isBefore(b.start) && !now.isAfter(b.end)) {
           current = b;
           next = i + 1 < _today.length ? _today[i + 1] : null;
-          label = 'До конца пары';
-          target = b.end;
+          final phase = _phaseOf(b, now);
+          label = phase.label;
+          target = phase.target;
+          onBreak = phase.onBreak;
           break;
         }
         if (now.isBefore(b.start)) {
@@ -217,9 +244,11 @@ class _HomeScreenState extends State<HomeScreen> {
       widgets.add(_bigCard(
         label: label,
         value: _fmtCountdown(diff),
-        sub: current != null
-            ? 'Идёт ${current.num} пара'
-            : 'Начало в ${_hm(target)}',
+        sub: current == null
+            ? 'Начало в ${_hm(target)}'
+            : onBreak
+                ? '${current.num} пара · звонок в ${_hm(target)}'
+                : 'Идёт ${current.num} пара · до ${_hm(target)}',
       ));
     } else {
       widgets.add(_bigCard(label: label, value: '✓', sub: 'До завтра!'));
@@ -238,6 +267,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return widgets;
+  }
+
+  /// На какой стадии пары мы сейчас: идёт половина или перерыв между ними.
+  ({String label, DateTime target, bool onBreak}) _phaseOf(
+      PairBlock b, DateTime now) {
+    final segs = b.segments;
+    for (var i = 0; i < segs.length; i++) {
+      final s = segs[i];
+      if (now.isAfter(s.end)) continue;
+      if (now.isBefore(s.start)) {
+        return (
+          label: 'Перерыв · до ${i + 1} половины',
+          target: s.start,
+          onBreak: true
+        );
+      }
+      return (
+        label: segs.length > 1 ? 'До конца ${i + 1} половины' : 'До конца пары',
+        target: s.end,
+        onBreak: false
+      );
+    }
+    return (label: 'До конца пары', target: b.end, onBreak: false);
   }
 
   String _hm(DateTime t) =>
@@ -315,9 +367,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       letterSpacing: 1,
                       fontWeight: FontWeight.w700)),
               const Spacer(),
-              Text('${_hm(b.start)} – ${_hm(b.end)}',
-                  style: const TextStyle(
-                      color: AppColors.textDim, fontSize: 12.5)),
+              Flexible(
+                child: Text(
+                    b.segments.length > 1
+                        ? '${_hm(b.segments.first.start)}–${_hm(b.segments.first.end)} · '
+                            '${_hm(b.segments.last.start)}–${_hm(b.segments.last.end)}'
+                        : '${_hm(b.start)} – ${_hm(b.end)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: AppColors.textDim, fontSize: 12)),
+              ),
             ],
           ),
           const SizedBox(height: 8),
