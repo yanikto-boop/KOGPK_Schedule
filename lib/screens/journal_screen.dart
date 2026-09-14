@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'attendance_screen.dart';
 
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
@@ -88,6 +89,11 @@ class _JournalScreenState extends State<JournalScreen> {
         actions: [
           if (_data != null)
             IconButton(
+                onPressed: () => _openAttendance(_data!),
+                icon: const Icon(Icons.fact_check_outlined),
+                tooltip: 'Посещаемость'),
+          if (_data != null)
+            IconButton(
                 onPressed: _forget,
                 icon: const Icon(Icons.logout),
                 tooltip: 'Сменить зачётку'),
@@ -159,6 +165,9 @@ class _JournalScreenState extends State<JournalScreen> {
     );
   }
 
+  void _openAttendance(JournalData d) => Navigator.push(context,
+      MaterialPageRoute(builder: (_) => AttendanceScreen(data: d)));
+
   Widget _summary(JournalData d) {
     final updated = d.cachedAt != null
         ? DateFormat('dd.MM HH:mm').format(d.cachedAt!.toLocal())
@@ -191,7 +200,9 @@ class _JournalScreenState extends State<JournalScreen> {
               _stat('Средний балл',
                   d.overallAvg == 0 ? '—' : d.overallAvg.toStringAsFixed(1)),
               _stat('Оценок', '${d.totalGrades}'),
-              _stat('Пропусков', '${d.totalMissed}'),
+              _stat('Пропусков', '${d.totalMissed}',
+                  color: d.totalMissed > 0 ? AppColors.red : null,
+                  onTap: () => _openAttendance(d)),
             ],
           ),
           if (updated.isNotEmpty) ...[
@@ -204,18 +215,39 @@ class _JournalScreenState extends State<JournalScreen> {
     );
   }
 
-  Widget _stat(String label, String value) => Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _stat(String label, String value,
+      {Color? color, VoidCallback? onTap}) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: 22, fontWeight: FontWeight.w800, color: color)),
+        Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.w800)),
-            Text(label,
-                style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
+            Flexible(
+              child: Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: AppColors.textDim, fontSize: 12)),
+            ),
+            if (onTap != null)
+              const Icon(Icons.chevron_right,
+                  size: 15, color: AppColors.textDim),
           ],
         ),
-      );
+      ],
+    );
+    if (onTap == null) return Expanded(child: content);
+    return Expanded(
+      child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: content),
+    );
+  }
 }
 
 class _SubjectCard extends StatelessWidget {
@@ -239,58 +271,81 @@ class _SubjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final graded = subject.entries.where((e) => e.grade.isNotEmpty).toList();
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    // Показываем и оценки, и пропуски: пропуск без оценки тоже надо видеть.
+    final rows =
+        subject.entries.where((e) => e.grade.isNotEmpty || e.absent).toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // Material, а не Container: иначе ExpansionTile рисует отклик нажатия
+      // под фоном контейнера и его не видно.
+      child: Material(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-          title: Text(subject.subject,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-          subtitle: Text(
-            subject.gradeCount > 0
-                ? 'Средний: ${subject.avg}  •  оценок: ${subject.gradeCount}'
-                : 'Нет оценок',
-            style: const TextStyle(color: AppColors.textDim, fontSize: 12),
-          ),
-          trailing: subject.gradeCount > 0
-              ? Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _gradeColor(subject.avg.round().toString())
-                        .withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(subject.avg.toStringAsFixed(1),
-                      style: TextStyle(
-                          color: _gradeColor(subject.avg.round().toString()),
-                          fontWeight: FontWeight.w700)),
-                )
-              : const Icon(Icons.expand_more, color: AppColors.textDim),
-          children: graded.isEmpty
-              ? [
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Оценок пока нет',
-                        style: TextStyle(color: AppColors.textDim)),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppColors.border),
+        ),
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+            title: Text(subject.subject,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            subtitle: Text.rich(
+              TextSpan(
+                style: const TextStyle(color: AppColors.textDim, fontSize: 12),
+                children: [
+                  TextSpan(
+                      text: subject.gradeCount > 0
+                          ? 'Средний: ${subject.avg}  •  оценок: ${subject.gradeCount}'
+                          : 'Нет оценок'),
+                  if (subject.missed > 0)
+                    TextSpan(
+                        text: '  •  пропусков: ${subject.missed}',
+                        style: const TextStyle(
+                            color: AppColors.red,
+                            fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+            trailing: subject.gradeCount > 0
+                ? Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _gradeColor(subject.avg.round().toString())
+                          .withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(subject.avg.toStringAsFixed(1),
+                        style: TextStyle(
+                            color: _gradeColor(subject.avg.round().toString()),
+                            fontWeight: FontWeight.w700)),
                   )
-                ]
-              : graded.map((e) => _gradeRow(e)).toList(),
+                : const Icon(Icons.expand_more, color: AppColors.textDim),
+            children: rows.isEmpty
+                ? [
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Оценок пока нет',
+                          style: TextStyle(color: AppColors.textDim)),
+                    )
+                  ]
+                : rows.map((e) => _gradeRow(e)).toList(),
+          ),
         ),
       ),
     );
   }
 
   Widget _gradeRow(GradeEntry e) {
-    final date = e.date.split(',').first;
+    final date = e.shortDate;
+    // Пропуск без оценки помечаем «Н», иначе показываем саму оценку.
+    final noGrade = e.grade.isEmpty;
+    final mark = noGrade ? 'Н' : e.grade;
+    final markColor = noGrade ? AppColors.red : _gradeColor(e.grade);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -300,13 +355,12 @@ class _SubjectCard extends StatelessWidget {
             height: 28,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _gradeColor(e.grade).withValues(alpha: 0.18),
+              color: markColor.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(e.grade,
-                style: TextStyle(
-                    color: _gradeColor(e.grade),
-                    fontWeight: FontWeight.w700)),
+            child: Text(mark,
+                style:
+                    TextStyle(color: markColor, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -323,9 +377,10 @@ class _SubjectCard extends StatelessWidget {
               ],
             ),
           ),
-          Icon(e.present ? Icons.check_circle : Icons.cancel,
-              size: 16,
-              color: e.present ? AppColors.green : AppColors.red),
+          if (e.marked)
+            Icon(e.present ? Icons.check_circle : Icons.cancel,
+                size: 16,
+                color: e.present ? AppColors.green : AppColors.red),
         ],
       ),
     );

@@ -344,6 +344,16 @@ class GradeEntry {
       (j['grade'] ?? '').toString(),
       (j['homework'] ?? '').toString());
   bool get present => attendance == 'Да';
+
+  /// Пропуск — только явная отметка «не был». Пустая отметка значит, что
+  /// посещаемость за это занятие вообще не проставили: это не прогул.
+  bool get absent => attendance.isNotEmpty && !present;
+
+  /// Есть ли отметка о посещаемости (иначе занятие не учитываем в статистике).
+  bool get marked => attendance.isNotEmpty;
+
+  /// Дата без дня недели: «12.09.2026, пятница» -> «12.09.2026».
+  String get shortDate => date.split(',').first.trim();
 }
 
 class SubjectGrades {
@@ -352,6 +362,14 @@ class SubjectGrades {
   final double avg;
   final int gradeCount;
   SubjectGrades(this.subject, this.entries, this.avg, this.gradeCount);
+
+  List<GradeEntry> get misses => entries.where((e) => e.absent).toList();
+  int get missed => misses.length;
+  int get attended => entries.where((e) => e.present).length;
+
+  /// Занятий с проставленной посещаемостью.
+  int get marked => attended + missed;
+  double get attendanceRate => marked == 0 ? 1 : attended / marked;
 }
 
 class JournalData {
@@ -395,6 +413,15 @@ class JournalData {
   }
 
   int get totalGrades => subjects.fold(0, (a, s) => a + s.gradeCount);
-  int get totalMissed => subjects.fold(
-      0, (a, s) => a + s.entries.where((e) => !e.present).length);
+  int get totalMissed => subjects.fold(0, (a, s) => a + s.missed);
+  int get totalAttended => subjects.fold(0, (a, s) => a + s.attended);
+  int get totalMarked => totalAttended + totalMissed;
+  double get attendanceRate => totalMarked == 0 ? 1 : totalAttended / totalMarked;
+
+  /// Предметы с пропусками — сначала те, где пропусков больше.
+  List<SubjectGrades> get byMisses {
+    final list = subjects.where((s) => s.missed > 0).toList();
+    list.sort((a, b) => b.missed.compareTo(a.missed));
+    return list;
+  }
 }
