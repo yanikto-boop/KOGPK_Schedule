@@ -24,6 +24,50 @@ class PairBlock {
 
   DateTime get start => segments.first.start;
   DateTime get end => segments.last.end;
+
+  /// "08:00 - 08:45 08:55 - 09:40" -> две половины с перерывом между ними.
+  /// Метки времени идут парами «начало-конец»; [day] задаёт дату.
+  static List<PairSegment> parseSegments(String time, DateTime day) {
+    final ts = RegExp(r'(\d{1,2}):(\d{2})')
+        .allMatches(time)
+        .map((m) => DateTime(day.year, day.month, day.day,
+            int.parse(m.group(1)!), int.parse(m.group(2)!)))
+        .toList();
+    if (ts.isEmpty) return [];
+    if (ts.length == 1) return [PairSegment(ts.first, ts.first)];
+    final out = <PairSegment>[];
+    for (var i = 0; i + 1 < ts.length; i += 2) {
+      out.add(PairSegment(ts[i], ts[i + 1]));
+    }
+    // нечётное число меток: последняя всё равно конец пары
+    if (ts.length.isOdd) {
+      out[out.length - 1] = PairSegment(out.last.start, ts.last);
+    }
+    return out;
+  }
+
+  /// На какой стадии пары мы сейчас: идёт половина или перерыв между ними.
+  ({String label, DateTime target, bool onBreak}) phaseAt(DateTime now) {
+    for (var i = 0; i < segments.length; i++) {
+      final s = segments[i];
+      if (now.isAfter(s.end)) continue;
+      if (now.isBefore(s.start)) {
+        return (
+          label: 'Перерыв · до ${i + 1} половины',
+          target: s.start,
+          onBreak: true
+        );
+      }
+      return (
+        label: segments.length > 1
+            ? 'До конца ${i + 1} половины'
+            : 'До конца пары',
+        target: s.end,
+        onBreak: false
+      );
+    }
+    return (label: 'До конца пары', target: end, onBreak: false);
+  }
 }
 
 class HomeScreen extends StatefulWidget {
@@ -60,31 +104,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${n.year.toString().padLeft(4, '0')}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
   }
 
-  List<DateTime> _times(String time) {
-    final today = DateTime.now();
-    final ms = RegExp(r'(\d{1,2}):(\d{2})').allMatches(time);
-    return ms
-        .map((m) => DateTime(today.year, today.month, today.day,
-            int.parse(m.group(1)!), int.parse(m.group(2)!)))
-        .toList();
-  }
-
-  /// "08:00 - 08:45 08:55 - 09:40" -> две половины с перерывом между ними.
-  List<PairSegment> _segments(String time) {
-    final ts = _times(time);
-    if (ts.isEmpty) return [];
-    if (ts.length == 1) return [PairSegment(ts.first, ts.first)];
-    final out = <PairSegment>[];
-    for (var i = 0; i + 1 < ts.length; i += 2) {
-      out.add(PairSegment(ts[i], ts[i + 1]));
-    }
-    // нечётное число меток: последняя всё равно конец пары
-    if (ts.length.isOdd) {
-      out[out.length - 1] = PairSegment(out.last.start, ts.last);
-    }
-    return out;
-  }
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -111,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (day != null) {
         for (final l in day.lessons) {
           if (l.subgroups.isEmpty) continue;
-          final segs = _segments(l.time);
+          final segs = PairBlock.parseSegments(l.time, DateTime.now());
           if (segs.isEmpty) continue;
           final sg = l.subgroups.first;
           blocks.add(
@@ -218,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!now.isBefore(b.start) && !now.isAfter(b.end)) {
           current = b;
           next = i + 1 < _today.length ? _today[i + 1] : null;
-          final phase = _phaseOf(b, now);
+          final phase = b.phaseAt(now);
           label = phase.label;
           target = phase.target;
           onBreak = phase.onBreak;
@@ -267,29 +286,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return widgets;
-  }
-
-  /// На какой стадии пары мы сейчас: идёт половина или перерыв между ними.
-  ({String label, DateTime target, bool onBreak}) _phaseOf(
-      PairBlock b, DateTime now) {
-    final segs = b.segments;
-    for (var i = 0; i < segs.length; i++) {
-      final s = segs[i];
-      if (now.isAfter(s.end)) continue;
-      if (now.isBefore(s.start)) {
-        return (
-          label: 'Перерыв · до ${i + 1} половины',
-          target: s.start,
-          onBreak: true
-        );
-      }
-      return (
-        label: segs.length > 1 ? 'До конца ${i + 1} половины' : 'До конца пары',
-        target: s.end,
-        onBreak: false
-      );
-    }
-    return (label: 'До конца пары', target: b.end, onBreak: false);
   }
 
   String _hm(DateTime t) =>
