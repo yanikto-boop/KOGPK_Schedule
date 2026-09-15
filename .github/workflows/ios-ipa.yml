@@ -1,0 +1,47 @@
+name: iOS IPA (unsigned, for sideloading)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/ios-build]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      # В репо нет папки ios — генерируем её на лету
+      - name: Generate iOS project
+        run: flutter create --platforms=ios --org com.kogpk .
+
+      - name: iOS app icon
+        run: |
+          sed -i '' 's/^  ios: false/  ios: true\n  remove_alpha_ios: true/' pubspec.yaml
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Display name
+        run: /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Расписание КОГПК'" ios/Runner/Info.plist
+
+      - name: Build (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          VER=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
+          mkdir -p out/Payload
+          cp -R build/ios/iphoneos/Runner.app out/Payload/
+          cd out && zip -qr "KOGPK_Schedule_${VER}_unsigned.ipa" Payload
+          echo "IPA=out/KOGPK_Schedule_${VER}_unsigned.ipa" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: ${{ env.IPA }}
