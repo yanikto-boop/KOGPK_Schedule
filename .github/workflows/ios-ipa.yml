@@ -33,7 +33,8 @@ jobs:
       # workmanager_apple требует iOS 14+
       - name: Deployment target 14.0
         run: |
-          flutter build ios --config-only --release --no-codesign
+          FR=$(dirname $(dirname $(which flutter)))
+          [ -f ios/Podfile ] || cp "$FR/packages/flutter_tools/templates/cocoapods/Podfile-ios" ios/Podfile
           sed -i '' -E "s/^#? *platform :ios.*/platform :ios, '14.0'/" ios/Podfile
           sed -i '' -E 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = 14.0;/g' ios/Runner.xcodeproj/project.pbxproj
           grep -n "platform :ios" ios/Podfile
