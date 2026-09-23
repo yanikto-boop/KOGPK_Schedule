@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'theme.dart';
@@ -61,16 +63,25 @@ class _RootScreenState extends State<RootScreen> {
     if (mounted) setState(() => _showOnboarding = false);
   }
 
+  Timer? _updateTimer;
+
   @override
   void initState() {
     super.initState();
     _maybeOnboard();
     // автопроверка обновления при запуске (с небольшой задержкой,
     // чтобы не мешать первой отрисовке)
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) UpdateFlow.checkOnLaunch(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) UpdateFlow.checkOnLaunch(context);
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _updateTimer?.cancel();
+    super.dispose();
   }
 
   @override
