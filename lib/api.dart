@@ -33,6 +33,29 @@ class Api {
     return ScheduleData.fromJson(r, teacherMode: true);
   }
 
+  // ── кабинеты (сервер собирает их из расписания групп) ──
+  static Future<List<RoomRef>> rooms() async {
+    final r = await _get('/rooms');
+    return (r['rooms'] as List)
+        .map((e) => RoomRef.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<ScheduleData> room(String name) async {
+    final r = await _get('/room?name=${Uri.encodeQueryComponent(name)}');
+    return ScheduleData.fromRoom(r);
+  }
+
+  /// Свободные кабинеты колледжа. Без [num] — текущая/следующая пара сегодня.
+  static Future<FreeRooms> roomsFree({String? date, String? num}) async {
+    final q = <String>[
+      if (date != null) 'date=$date',
+      if (num != null) 'num=${Uri.encodeQueryComponent(num)}',
+    ];
+    final r = await _get('/rooms/free${q.isEmpty ? '' : '?${q.join('&')}'}');
+    return FreeRooms.fromJson(r);
+  }
+
   static Future<JournalData> journal(String ticketId) async {
     final resp = await http
         .post(Uri.parse('$base/journal'),
@@ -247,6 +270,71 @@ class ScheduleData {
     }).toList();
     return ScheduleData(title, days);
   }
+
+  /// Кабинет: в одну пару там может сидеть несколько групп/подгрупп —
+  /// сворачиваем их в одну пару с несколькими подгруппами.
+  factory ScheduleData.fromRoom(Map<String, dynamic> j) {
+    final days = (j['days'] as List? ?? []).map((d) {
+      final dm = d as Map<String, dynamic>;
+      final byNum = <String, Lesson>{};
+      for (final l in (dm['lessons'] as List? ?? [])) {
+        final lm = l as Map<String, dynamic>;
+        final num = (lm['num'] ?? '').toString();
+        final lesson = byNum.putIfAbsent(
+            num, () => Lesson(num, (lm['time'] ?? '').toString().trim(), []));
+        lesson.subgroups.add(Subgroup(
+          subject: (lm['subject'] ?? '').toString(),
+          teacher: (lm['teacher'] ?? '').toString(),
+          group: (lm['group'] ?? '').toString(),
+        ));
+      }
+      return DaySchedule((dm['title'] ?? '').toString(), dm['date'] as String?,
+          byNum.values.toList());
+    }).toList();
+    return ScheduleData((j['room'] ?? '').toString(), days);
+  }
+}
+
+class RoomRef {
+  final String name;
+  final String short;
+  final String floor; // '1' | '2' | '3' | 's' (СОШ №10) | 'o' (другое)
+  final String floorLabel;
+  RoomRef(this.name, this.short, this.floor, this.floorLabel);
+  factory RoomRef.fromJson(Map<String, dynamic> j) => RoomRef(
+      (j['name'] ?? '').toString(),
+      (j['short'] ?? j['name'] ?? '').toString(),
+      (j['floor'] ?? 'o').toString(),
+      (j['floor_label'] ?? '').toString());
+}
+
+class PairSlot {
+  final String num;
+  final String start;
+  final String end;
+  PairSlot(this.num, this.start, this.end);
+}
+
+class FreeRooms {
+  final String? title; // день, null — занятий нет
+  final String? num; // выбранная пара, null — пары кончились
+  final String? state; // 'now' | 'next' | 'over' | null
+  final List<PairSlot> pairs;
+  final List<String> free;
+  final int busy;
+  FreeRooms(this.title, this.num, this.state, this.pairs, this.free, this.busy);
+
+  factory FreeRooms.fromJson(Map<String, dynamic> j) => FreeRooms(
+        j['title'] as String?,
+        j['num']?.toString(),
+        j['state'] as String?,
+        (j['pairs'] as List? ?? [])
+            .map((p) => PairSlot((p['num'] ?? '').toString(),
+                (p['start'] ?? '').toString(), (p['end'] ?? '').toString()))
+            .toList(),
+        (j['free'] as List? ?? []).map((e) => e.toString()).toList(),
+        (j['busy'] as List? ?? []).length,
+      );
 }
 
 int _asInt(Object? v) => v is int ? v : (v is double ? v.toInt() : 0);

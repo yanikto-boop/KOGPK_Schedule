@@ -10,6 +10,7 @@ import 'admin_screen.dart';
 import 'transport_screen.dart';
 import 'support_screen.dart';
 import 'changes_screen.dart';
+import 'rooms_screen.dart';
 import '../services/notif_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -188,6 +189,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
+          _tile(Icons.meeting_room, 'Кабинеты',
+              subtitle: 'Расписание кабинетов и свободные на этой паре',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const RoomsScreen()))),
           _tile(Icons.favorite, 'Поддержать проект',
               subtitle: 'Сбор на публикацию в App Store',
               onTap: () => Navigator.push(context,

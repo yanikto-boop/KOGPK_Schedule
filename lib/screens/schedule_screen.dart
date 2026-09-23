@@ -4,6 +4,7 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../services/widget_service.dart';
+import '../errors.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -40,7 +41,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       }
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -62,7 +63,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       WidgetService.update(data, _selected!).catchError((_) {});
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }

@@ -5,6 +5,7 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../services/notif_service.dart';
+import '../errors.dart';
 
 class ChangesScreen extends StatefulWidget {
   const ChangesScreen({super.key});
@@ -47,7 +48,7 @@ class _ChangesScreenState extends State<ChangesScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }

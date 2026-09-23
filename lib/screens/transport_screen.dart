@@ -6,6 +6,7 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'map_screen.dart';
+import '../errors.dart';
 
 class TransportScreen extends StatelessWidget {
   const TransportScreen({super.key});
@@ -79,7 +80,7 @@ class _StationsTabState extends State<_StationsTab>
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -215,7 +216,7 @@ class _RoutesTabState extends State<_RoutesTab>
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -297,7 +298,7 @@ class _RouteStationsScreenState extends State<RouteStationsScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -458,7 +459,7 @@ class _StationForecastScreenState extends State<StationForecastScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
