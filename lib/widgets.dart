@@ -306,9 +306,10 @@ class _LessonTile extends StatelessWidget {
             children: [
               if (s.room.isNotEmpty)
                 _meta(Icons.meeting_room_outlined, s.room),
-              if (teacherMode && s.group.isNotEmpty)
+              // у группы пустая group, у препода пустой teacher, у кабинета есть оба
+              if (s.group.isNotEmpty)
                 _meta(Icons.groups_outlined, s.group),
-              if (!teacherMode && s.teacher.isNotEmpty)
+              if (s.teacher.isNotEmpty)
                 _meta(Icons.person_outline, s.teacher),
             ],
           ),
