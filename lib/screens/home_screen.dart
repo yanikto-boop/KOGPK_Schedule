@@ -5,6 +5,7 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'changes_screen.dart';
+import '../errors.dart';
 
 /// Половина пары: от звонка на урок до звонка с урока.
 class PairSegment {
@@ -144,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }

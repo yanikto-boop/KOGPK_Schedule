@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'rooms_screen.dart';
+import '../errors.dart';
 
 class TeachersScreen extends StatefulWidget {
   const TeachersScreen({super.key});
@@ -34,7 +36,7 @@ class _TeachersScreenState extends State<TeachersScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -46,7 +48,17 @@ class _TeachersScreenState extends State<TeachersScreen> {
         ? _all
         : _all.where((t) => t.toLowerCase().contains(_q.toLowerCase())).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('Преподаватели')),
+      appBar: AppBar(
+        title: const Text('Преподаватели'),
+        actions: [
+          IconButton(
+            tooltip: 'Кабинеты',
+            icon: const Icon(Icons.meeting_room_outlined),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RoomsScreen())),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -146,7 +158,7 @@ class _TeacherScheduleScreenState extends State<TeacherScheduleScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }

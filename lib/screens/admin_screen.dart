@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../errors.dart';
 
 class AdminScreen extends StatefulWidget {
   final String password;
@@ -35,7 +36,7 @@ class _AdminScreenState extends State<AdminScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -70,7 +71,7 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Ошибка: $e')));
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     }
   }

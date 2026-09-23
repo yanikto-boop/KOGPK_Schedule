@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../api.dart';
 import '../theme.dart';
+import '../errors.dart';
 
 class BusMapScreen extends StatefulWidget {
   final BusRoute? route; // null = вся сеть города
@@ -54,7 +55,7 @@ class _BusMapScreenState extends State<BusMapScreen> {
       _loadVehicles();
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
       });
     }
@@ -202,7 +203,7 @@ class _StationSheetState extends State<_StationSheet> {
       final f = await Api.busForecast(widget.station.id);
       if (mounted) setState(() => _items = f);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = friendlyError(e));
     }
   }
 

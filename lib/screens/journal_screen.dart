@@ -5,6 +5,7 @@ import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'attendance_screen.dart';
+import '../errors.dart';
 
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
@@ -51,24 +52,10 @@ class _JournalScreenState extends State<JournalScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = _friendlyError(e);
+        _error = friendlyError(e);
         _loading = false;
       });
     }
-  }
-
-  String _friendlyError(Object e) {
-    final s = e.toString().toLowerCase();
-    if (s.contains('journal unavailable') ||
-        s.contains('502') ||
-        s.contains('timeout') ||
-        s.contains('connection') ||
-        s.contains('closed')) {
-      return 'Сайт колледжа сейчас не отвечает (журнал там периодически недоступен).\n'
-          'Если зачётка верная — попробуй ещё раз чуть позже.';
-    }
-    if (s.contains('bad ticket')) return 'Неверный номер зачётки';
-    return e.toString();
   }
 
   Future<void> _forget() async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../theme.dart';
+import '../errors.dart';
 
 class SupportScreen extends StatefulWidget {
   const SupportScreen({super.key});
@@ -70,7 +71,7 @@ class _SupportScreenState extends State<SupportScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Ошибка: $e')));
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _paying = false);
