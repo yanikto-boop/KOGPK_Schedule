@@ -3,4 +3,6 @@
     <string name="widget_small_desc">Пары на ближайший день (2×2)</string>
     <string name="widget_wide_desc">Пары на ближайший день (4×2)</string>
     <string name="widget_bus_desc">Прибытие автобусов на избранную остановку</string>
+    <string name="widget_countdown_small_desc">Таймер до конца пары или перерыва (2×1)</string>
+    <string name="widget_countdown_medium_desc">Таймер и текущая пара (2×2)</string>
 </resources>

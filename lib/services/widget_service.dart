@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:home_widget/home_widget.dart';
 import '../api.dart';
+import 'countdown_timeline.dart';
 
 /// Готовит данные для виджетов на главный экран и обновляет их.
 ///
@@ -75,9 +76,17 @@ class WidgetService {
     await HomeWidget.saveWidgetData<String>('w_group', group);
     await HomeWidget.saveWidgetData<String>('w_days', jsonEncode(days));
 
+    final timeline = CountdownTimeline.build(data.days, DateTime.now());
+    await HomeWidget.saveWidgetData<String>(
+        'w_timeline', jsonEncode(timeline.map((p) => p.toJson()).toList()));
+
     await HomeWidget.updateWidget(
         androidName: 'ScheduleWidgetSmall', name: 'ScheduleWidgetSmall');
     await HomeWidget.updateWidget(
         androidName: 'ScheduleWidgetWide', name: 'ScheduleWidgetWide');
+    await HomeWidget.updateWidget(
+        androidName: 'CountdownWidgetSmall', name: 'CountdownWidgetSmall');
+    await HomeWidget.updateWidget(
+        androidName: 'CountdownWidgetMedium', name: 'CountdownWidgetMedium');
   }
 }

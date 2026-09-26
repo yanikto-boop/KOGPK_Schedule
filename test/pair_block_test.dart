@@ -1,6 +1,6 @@
 // Разбор времени пары на половины и определение текущей стадии.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:schedule_app/screens/home_screen.dart';
+import 'package:schedule_app/pair.dart';
 
 void main() {
   final day = DateTime(2026, 9, 14);

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/cd_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:background="@drawable/widget_bg"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/cd_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textAllCaps="true"
+        android:letterSpacing="0.06"
+        android:textColor="#4F8CFF"
+        android:textStyle="bold"
+        android:textSize="10sp"
+        android:text="До конца 1 половины" />
+
+    <Chronometer
+        android:id="@+id/cd_timer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:textColor="#E6EDF3"
+        android:textStyle="bold"
+        android:textSize="26sp" />
+
+    <TextView
+        android:id="@+id/cd_static"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="#E6EDF3"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="11sp"
+        android:autoSizeMaxTextSize="18sp"
+        tools:targetApi="o"
+        android:text="Завтра в 08:00" />
+
+    <!-- в 2×1 не помещаются, но нужны тем же кодом, что и 2×2 -->
+    <TextView
+        android:id="@+id/cd_title"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/cd_sub"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+</LinearLayout>
