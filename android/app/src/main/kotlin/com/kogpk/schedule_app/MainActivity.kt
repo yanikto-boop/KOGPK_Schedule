@@ -4,6 +4,8 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -32,6 +34,9 @@ class MainActivity : FlutterActivity() {
                         result.success(pinWidget(which))
                     }
                     "canPinWidget" -> result.success(canPinWidget())
+                    "exactAlarmAllowed" -> result.success(Countdown.canExact(this))
+                    "requestExactAlarm" -> result.success(requestExactAlarm())
+                    "countdownWidgetsPlaced" -> result.success(countdownWidgetsPlaced())
                     else -> result.notImplemented()
                 }
             }
@@ -60,9 +65,31 @@ class MainActivity : FlutterActivity() {
         val cls = when (which) {
             "wide" -> ScheduleWidgetWide::class.java
             "bus" -> BusWidget::class.java
+            "countdown_small" -> CountdownWidgetSmall::class.java
+            "countdown_medium" -> CountdownWidgetMedium::class.java
             else -> ScheduleWidgetSmall::class.java
         }
         val provider = ComponentName(this, cls)
         return mgr.requestPinAppWidget(provider, null, null)
+    }
+
+    /** Открывает системный экран «Будильники и напоминания» для приложения. */
+    private fun requestExactAlarm(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:$packageName"))
+            )
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun countdownWidgetsPlaced(): Boolean {
+        val mgr = AppWidgetManager.getInstance(this)
+        return listOf(CountdownWidgetSmall::class.java, CountdownWidgetMedium::class.java)
+            .any { mgr.getAppWidgetIds(ComponentName(this, it)).isNotEmpty() }
     }
 }

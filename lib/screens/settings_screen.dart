@@ -109,48 +109,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            const Text('Какой виджет добавить?',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.crop_square, color: AppColors.primary),
-              title: const Text('Компактный 2×2'),
-              subtitle: const Text('Пары на ближайший день'),
-              onTap: () {
-                Navigator.pop(context);
-                Native.pinWidget('small');
-              },
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.crop_16_9, color: AppColors.primary),
-              title: const Text('Широкий 4×2'),
-              subtitle: const Text('Расширенный список пар'),
-              onTap: () {
-                Navigator.pop(context);
-                Native.pinWidget('wide');
-              },
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.directions_bus, color: AppColors.primary),
-              title: const Text('Автобус 3×2'),
-              subtitle: const Text('Прибытие на избранную остановку'),
-              onTap: () {
-                Navigator.pop(context);
-                Native.pinWidget('bus');
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              const Text('Какой виджет добавить?',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.crop_square, color: AppColors.primary),
+                title: const Text('Компактный 2×2'),
+                subtitle: const Text('Пары на ближайший день'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Native.pinWidget('small');
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.crop_16_9, color: AppColors.primary),
+                title: const Text('Широкий 4×2'),
+                subtitle: const Text('Расширенный список пар'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Native.pinWidget('wide');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.timer_outlined,
+                    color: AppColors.primary),
+                title: const Text('Таймер 2×1'),
+                subtitle: const Text('Сколько до конца половины или перерыва'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Native.pinWidget('countdown_small');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.av_timer, color: AppColors.primary),
+                title: const Text('Таймер 2×2'),
+                subtitle: const Text('Отсчёт и текущая пара с кабинетом'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Native.pinWidget('countdown_medium');
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.directions_bus, color: AppColors.primary),
+                title: const Text('Автобус 3×2'),
+                subtitle: const Text('Прибытие на избранную остановку'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Native.pinWidget('bus');
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
         ),
       ),
     );

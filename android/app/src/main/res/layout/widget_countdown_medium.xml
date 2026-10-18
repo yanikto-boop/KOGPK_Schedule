@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/cd_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="14dp">
+
+    <TextView
+        android:id="@+id/cd_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:textAllCaps="true"
+        android:letterSpacing="0.06"
+        android:textColor="#4F8CFF"
+        android:textStyle="bold"
+        android:textSize="11sp"
+        android:text="До конца 1 половины" />
+
+    <Chronometer
+        android:id="@+id/cd_timer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:textColor="#E6EDF3"
+        android:textStyle="bold"
+        android:textSize="36sp" />
+
+    <TextView
+        android:id="@+id/cd_static"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:visibility="gone"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:textColor="#E6EDF3"
+        android:textStyle="bold"
+        android:textSize="20sp"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="13sp"
+        android:autoSizeMaxTextSize="22sp"
+        tools:targetApi="o"
+        android:text="Завтра в 08:00" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/cd_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:textColor="#E6EDF3"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:text="Математика" />
+
+    <TextView
+        android:id="@+id/cd_sub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="#8B949E"
+        android:textSize="11sp"
+        android:text="1 пара · 301" />
+</LinearLayout>

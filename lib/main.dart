@@ -10,6 +10,7 @@ import 'screens/teachers_screen.dart';
 import 'screens/journal_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/update_flow.dart';
+import 'services/exact_alarm_prompt.dart';
 import 'services/notif_service.dart';
 
 void main() async {
@@ -39,7 +40,8 @@ class RootScreen extends StatefulWidget {
   State<RootScreen> createState() => _RootScreenState();
 }
 
-class _RootScreenState extends State<RootScreen> {
+class _RootScreenState extends State<RootScreen>
+    with WidgetsBindingObserver {
   int _index = 2; // стартуем на «Главной» (по центру)
   bool _showOnboarding = false;
   final _pages = const [
@@ -64,10 +66,12 @@ class _RootScreenState extends State<RootScreen> {
   }
 
   Timer? _updateTimer;
+  Timer? _alarmTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _maybeOnboard();
     // автопроверка обновления при запуске (с небольшой задержкой,
     // чтобы не мешать первой отрисовке)
@@ -75,12 +79,27 @@ class _RootScreenState extends State<RootScreen> {
       _updateTimer = Timer(const Duration(seconds: 2), () {
         if (mounted) UpdateFlow.checkOnLaunch(context);
       });
+      // позже проверки обновлений, чтобы два диалога не всплыли разом
+      _alarmTimer = Timer(const Duration(seconds: 6), () {
+        if (mounted) ExactAlarmPrompt.maybeAsk(context);
+      });
     });
+  }
+
+  // виджет обычно добавляют через системное окно поверх приложения —
+  // возвращаясь из него, и проверяем разрешение на точные будильники
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      ExactAlarmPrompt.maybeAsk(context);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
+    _alarmTimer?.cancel();
     super.dispose();
   }
 

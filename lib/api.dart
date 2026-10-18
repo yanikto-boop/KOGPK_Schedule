@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+import 'services/client_info.dart';
+
 /// Клиент к Schedule API (бэкенд на германском сервере).
 class Api {
   static const base = 'https://vpn-ornux.space/sapi';
+  static final _c = TaggedClient();
 
   static Future<List<GroupRef>> groups() async {
     final r = await _get('/groups');
@@ -57,7 +60,7 @@ class Api {
   }
 
   static Future<JournalData> journal(String ticketId) async {
-    final resp = await http
+    final resp = await _c
         .post(Uri.parse('$base/journal'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'ticket_id': ticketId}))
@@ -122,7 +125,7 @@ class Api {
 
   static Future<({String paymentId, String url})> donateCreate(
       int amount) async {
-    final resp = await http
+    final resp = await _c
         .post(Uri.parse('$base/donate'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'amount': amount}))
@@ -147,21 +150,21 @@ class Api {
 
   // ── admin ──
   static Future<bool> adminLogin(String password) async {
-    final resp = await http.post(Uri.parse('$base/admin/login'),
+    final resp = await _c.post(Uri.parse('$base/admin/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'password': password}));
     return resp.statusCode == 200;
   }
 
   static Future<Map<String, dynamic>> adminStatus(String password) async {
-    final resp = await http.get(Uri.parse('$base/admin/status'),
+    final resp = await _c.get(Uri.parse('$base/admin/status'),
         headers: {'X-Admin-Password': password});
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
     return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
   }
 
   static Future<void> adminRefresh(String password, String target) async {
-    final resp = await http.post(Uri.parse('$base/admin/refresh'),
+    final resp = await _c.post(Uri.parse('$base/admin/refresh'),
         headers: {
           'Content-Type': 'application/json',
           'X-Admin-Password': password
@@ -171,7 +174,7 @@ class Api {
   }
 
   static Future<Map<String, dynamic>> _get(String path) async {
-    final resp = await http
+    final resp = await _c
         .get(Uri.parse('$base$path'))
         .timeout(const Duration(seconds: 15));
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
