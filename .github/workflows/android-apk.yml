@@ -43,15 +43,17 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: Verify signature
+      # Gradle на раннере подписывает не тем ключом — переподписываем явно и сверяем отпечаток
+      - name: Sign with release key and verify
         run: |
-          APKS=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
-          "$APKS" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep "SHA-256"
-
-      - name: Rename
-        run: |
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
           VER=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
-          cp build/app/outputs/flutter-apk/app-release.apk "KOGPK_Schedule_${VER}.apk"
+          OUT="KOGPK_Schedule_${VER}.apk"
+          "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-pass pass:android \
+            --key-pass pass:android --ks-key-alias androiddebugkey \
+            --out "$OUT" build/app/outputs/flutter-apk/app-release.apk
+          "$APKSIGNER" verify --print-certs "$OUT" | tee /tmp/cert.txt
+          grep -qi "095e4f5c14fa829cd8deb133dc174bb1e58b27d99d11d5564123dc8b1e1f5b58" /tmp/cert.txt
 
       - uses: actions/upload-artifact@v4
         with:
