@@ -83,7 +83,7 @@ class _RootScreenState extends State<RootScreen>
     // чтобы не мешать первой отрисовке)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) UpdateFlow.checkOnLaunch(context);
+        UpdateController.instance.check();
       });
       // позже проверки обновлений, чтобы два диалога не всплыли разом
       _alarmTimer = Timer(const Duration(seconds: 6), () {
@@ -98,6 +98,7 @@ class _RootScreenState extends State<RootScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       GamesApi.flushBb();
+      UpdateController.instance.check(); // строго: проверка при каждом открытии
       ExactAlarmPrompt.maybeAsk(context);
     }
   }
@@ -130,6 +131,7 @@ class _RootScreenState extends State<RootScreen>
                 ),
         ),
         Expanded(child: IndexedStack(index: _index, children: _pages)),
+        const UpdateBar(),
       ]),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(

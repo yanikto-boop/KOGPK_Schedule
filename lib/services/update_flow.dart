@@ -1,74 +1,136 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import 'update_service.dart';
 
-/// Общий поток обновления приложения: диалог + загрузка + установка.
-class UpdateFlow {
-  /// Проверка при запуске: тихо проверяет и, если есть новее — предлагает.
-  static Future<void> checkOnLaunch(BuildContext context) async {
-    final upd = await UpdateService.check();
-    if (upd == null || !context.mounted) return;
-    promptUpdate(context, upd);
+enum UpdatePhase { idle, downloading, ready, failed }
+
+/// Строгое обновление: при каждом открытии приложения проверяем релиз,
+/// новую версию сразу качаем (полоса снизу) и открываем установку.
+/// «Позже» нет — пока не обновишься, полоса с кнопкой «Установить» висит.
+class UpdateController extends ChangeNotifier {
+  UpdateController._();
+  static final instance = UpdateController._();
+
+  UpdatePhase phase = UpdatePhase.idle;
+  double progress = 0;
+  AppUpdate? update;
+  String? _path;
+  bool _busy = false;
+  DateTime? _lastCheck, _lastInstall;
+
+  /// [manual] — из настроек: без паузы между проверками.
+  /// Возвращает найденное обновление (или null — последняя версия).
+  Future<AppUpdate?> check({bool manual = false}) async {
+    if (!Platform.isAndroid || _busy) return update;
+    if (phase == UpdatePhase.ready) {
+      // установщик закрыли — открываем снова, но не по кругу сразу же
+      final last = _lastInstall;
+      if (manual || last == null || DateTime.now().difference(last).inSeconds > 60) install();
+      return update;
+    }
+    final last = _lastCheck;
+    if (!manual && phase == UpdatePhase.idle && last != null &&
+        DateTime.now().difference(last).inMinutes < 3) {
+      return null;
+    }
+    _busy = true;
+    _lastCheck = DateTime.now();
+    try {
+      final u = await UpdateService.check();
+      if (u == null) return null;
+      update = u;
+      await _download(u);
+      return u;
+    } finally {
+      _busy = false;
+    }
   }
 
-  static Future<void> promptUpdate(BuildContext context, AppUpdate upd) async {
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Text('Доступна версия ${upd.version}'),
-        content: SingleChildScrollView(
-          child: Text(upd.notes.isEmpty ? 'Обновить приложение?' : upd.notes),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Позже')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Обновить')),
-        ],
-      ),
-    );
-    if (go == true && context.mounted) downloadAndInstall(context, upd);
-  }
-
-  static Future<void> downloadAndInstall(
-      BuildContext context, AppUpdate upd) async {
-    final progress = ValueNotifier<double>(0);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Загрузка обновления'),
-        content: ValueListenableBuilder<double>(
-          valueListenable: progress,
-          builder: (_, v, __) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LinearProgressIndicator(
-                  value: v > 0 ? v : null, color: AppColors.primary),
-              const SizedBox(height: 12),
-              Text(v > 0 ? '${(v * 100).toStringAsFixed(0)}%' : 'Подключение…',
-                  style: const TextStyle(color: AppColors.textDim)),
-            ],
-          ),
-        ),
-      ),
-    );
-    final path = await UpdateService.downloadApk(
-        upd.downloadUrl, (p) => progress.value = p);
-    if (!context.mounted) return;
-    Navigator.pop(context); // закрыть прогресс
+  Future<void> _download(AppUpdate u) async {
+    phase = UpdatePhase.downloading;
+    progress = 0;
+    notifyListeners();
+    var shown = 0;
+    final path = await UpdateService.downloadApk(u.downloadUrl, u.version, (p) {
+      progress = p;
+      final pct = (p * 100).floor();
+      if (pct != shown) {
+        shown = pct;
+        notifyListeners();
+      }
+    });
     if (path == null) {
-      launchUrl(Uri.parse(UpdateService.releasesPage),
-          mode: LaunchMode.externalApplication);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Не удалось скачать — открыл страницу релиза')));
+      phase = UpdatePhase.failed;
+      notifyListeners();
       return;
     }
-    await UpdateService.install(path);
+    _path = path;
+    phase = UpdatePhase.ready;
+    notifyListeners();
+    install();
+  }
+
+  void install() {
+    final p = _path;
+    if (p == null) return;
+    _lastInstall = DateTime.now();
+    UpdateService.install(p);
+  }
+
+  void retry() {
+    final u = update;
+    if (u == null || _busy) return;
+    _busy = true;
+    _download(u).whenComplete(() => _busy = false);
+  }
+}
+
+/// Полоса обновления над нижней панелью.
+class UpdateBar extends StatelessWidget {
+  const UpdateBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = UpdateController.instance;
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        if (c.phase == UpdatePhase.idle) return const SizedBox.shrink();
+        final v = c.update?.version ?? '';
+        final (String text, String? action, VoidCallback? onTap) = switch (c.phase) {
+          UpdatePhase.downloading =>
+            ('Скачиваю обновление $v · ${(c.progress * 100).floor()}%', null, null),
+          UpdatePhase.ready => ('Обновление $v скачано', 'Установить', c.install),
+          _ => ('Не удалось скачать обновление $v', 'Повторить', c.retry),
+        };
+        return Material(
+          color: AppColors.surface,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            LinearProgressIndicator(
+              value: c.phase == UpdatePhase.downloading
+                  ? (c.progress > 0 ? c.progress : null)
+                  : 1,
+              minHeight: 3,
+              color: c.phase == UpdatePhase.failed ? Colors.redAccent : AppColors.primary,
+              backgroundColor: Colors.transparent,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+              child: Row(children: [
+                const Icon(Icons.system_update, size: 18, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+                if (action != null)
+                  TextButton(onPressed: onTap, child: Text(action))
+                else
+                  const SizedBox(height: 40),
+              ]),
+            ),
+          ]),
+        );
+      },
+    );
   }
 }

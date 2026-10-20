@@ -8,6 +8,7 @@ import 'changes_screen.dart';
 import '../errors.dart';
 import '../pair.dart';
 import '../services/profile.dart';
+import '../games/games_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -146,7 +147,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      body: _body(),
+      body: Column(children: [
+        Expanded(child: _body()),
+        const BoredStrip(),
+      ]),
     );
   }
 

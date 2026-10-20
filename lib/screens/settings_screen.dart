@@ -3,7 +3,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../theme.dart';
-import '../services/update_service.dart';
 import '../services/update_flow.dart';
 import '../services/native.dart';
 import 'admin_screen.dart';
@@ -149,14 +148,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _checkUpdate() async {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Проверяю обновления…')));
-    final upd = await UpdateService.check();
+    final upd = await UpdateController.instance.check(manual: true);
     if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     if (upd == null) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('У вас последняя версия')));
-      return;
     }
-    if (mounted) UpdateFlow.promptUpdate(context, upd);
   }
 
   Future<void> _addWidget() async {

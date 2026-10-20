@@ -5,6 +5,58 @@ import 'block_boom/block_boom.dart';
 import 'durak/lobby_screen.dart';
 import 'games_api.dart';
 
+/// Дурак: сначала ник (если ещё нет), потом лобби.
+Future<void> openDurak(BuildContext context) async {
+  await GamesApi.load();
+  if (!context.mounted) return;
+  if (!GamesApi.registered) {
+    final ok = await showDialog<bool>(context: context, builder: (_) => const NickDialog());
+    if (ok != true || !context.mounted) return;
+  }
+  Navigator.push(context, MaterialPageRoute(builder: (_) => const DurakLobbyScreen()));
+}
+
+/// Полоска на главной над нижней панелью: «Если скучно на парах».
+class BoredStrip extends StatelessWidget {
+  const BoredStrip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget btn(String emoji, String title, VoidCallback onTap) => Expanded(
+          child: Material(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text(emoji, style: const TextStyle(fontSize: 18)),
+                  const SizedBox(width: 8),
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                ]),
+              ),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 6),
+          child: Text('Если скучно на парах', style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+        ),
+        Row(children: [
+          btn('🧩', 'Block Boom', () => openBlockBoom(context)),
+          const SizedBox(width: 10),
+          btn('🃏', 'Дурак онлайн', () => openDurak(context)),
+        ]),
+      ]),
+    );
+  }
+}
+
 /// «Ещё» → «Игры»: ник, Block Boom, дурак онлайн, таблицы лидеров.
 class GamesScreen extends StatefulWidget {
   const GamesScreen({super.key});
@@ -22,13 +74,6 @@ class _GamesScreenState extends State<GamesScreen> {
       if (mounted) setState(() => _loaded = true);
       GamesApi.flushBb();
     });
-  }
-
-  Future<bool> _ensureNick() async {
-    if (GamesApi.registered) return true;
-    final ok = await showDialog<bool>(context: context, builder: (_) => const NickDialog());
-    if (mounted) setState(() {});
-    return ok == true;
   }
 
   @override
@@ -62,8 +107,8 @@ class _GamesScreenState extends State<GamesScreen> {
                 title: 'Дурак онлайн',
                 subtitle: 'До 6 игроков · подкидной и переводной · 24/36/52 карты',
                 onTap: () async {
-                  if (!await _ensureNick() || !context.mounted) return;
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const DurakLobbyScreen()));
+                  await openDurak(context);
+                  if (mounted) setState(() {});
                 },
               ),
               _card(

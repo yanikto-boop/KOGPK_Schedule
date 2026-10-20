@@ -55,29 +55,49 @@ class UpdateService {
     }
   }
 
-  /// Качает APK во внешнюю папку приложения, отдаёт прогресс 0..1.
+  /// Качает APK версии [version] во внешнюю папку приложения, отдаёт прогресс 0..1.
+  /// Уже скачанный целиком файл этой версии не качается заново.
   /// Возвращает путь к файлу или null при ошибке.
   static Future<String?> downloadApk(
-      String url, void Function(double) onProgress) async {
+      String url, String version, void Function(double) onProgress) async {
     try {
       final base = await getExternalStorageDirectory();
       if (base == null) return null;
       final dir = Directory('${base.path}/updates');
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final file = File('${dir.path}/schedule_update.apk');
+      final file = File('${dir.path}/schedule_$version.apk');
+      final done = File('${file.path}.ok');
+      if (file.existsSync() && done.existsSync()) {
+        onProgress(1);
+        return file.path;
+      }
+      // старые и недокачанные файлы — в мусор
+      for (final f in dir.listSync()) {
+        try {
+          f.deleteSync();
+        } catch (_) {}
+      }
 
       final client = http.Client();
-      final resp = await client.send(http.Request('GET', Uri.parse(url)));
-      final total = resp.contentLength ?? 0;
-      var received = 0;
-      final sink = file.openWrite();
-      await for (final chunk in resp.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0) onProgress(received / total);
+      try {
+        final resp = await client
+            .send(http.Request('GET', Uri.parse(url)))
+            .timeout(const Duration(seconds: 20));
+        if (resp.statusCode != 200) return null;
+        final total = resp.contentLength ?? 0;
+        var received = 0;
+        final sink = file.openWrite();
+        await for (final chunk in resp.stream.timeout(const Duration(seconds: 30))) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (total > 0) onProgress(received / total);
+        }
+        await sink.close();
+        if (total > 0 && received != total) return null;
+      } finally {
+        client.close();
       }
-      await sink.close();
-      client.close();
+      done.writeAsStringSync('ok');
       return file.path;
     } catch (_) {
       return null;
