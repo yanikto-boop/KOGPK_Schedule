@@ -2,6 +2,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import '../api.dart';
+import 'profile.dart';
+import '../games/games_api.dart';
 
 const _taskName = 'kogpk_changes_check';
 const _channelId = 'schedule_changes';
@@ -16,6 +18,7 @@ void callbackDispatcher() {
     try {
       await NotifService.checkChangesBackground();
     } catch (_) {}
+    await GamesApi.flushBb(); // рекорд, набранный без сети
     return true;
   });
 }
@@ -65,6 +68,12 @@ class NotifService {
         DateTime.now().millisecondsSinceEpoch ~/ 1000, title, body, details);
   }
 
+  /// Смена режима: у новой ленты своя история — первый проход только запомнит.
+  static Future<void> resetSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefNotifiedTs);
+  }
+
   /// Помечает текущие изменения как просмотренные (вызывается из экрана).
   static Future<void> markSeen(String newestTs) async {
     final prefs = await SharedPreferences.getInstance();
@@ -75,10 +84,13 @@ class NotifService {
   static Future<void> checkChangesBackground() async {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool(_prefEnabled) ?? true)) return;
+    final teacher = await Profile.teacher();
     final group = prefs.getString('group');
-    if (group == null || group.isEmpty) return;
+    if (teacher == null && (group == null || group.isEmpty)) return;
 
-    final changes = await Api.changes(group);
+    final changes = teacher != null
+        ? await Api.teacherChanges(teacher)
+        : await Api.changes(group!);
     if (changes.isEmpty) return;
     final newest = changes.first.ts;
     final last = prefs.getString(_prefNotifiedTs) ?? '';
@@ -95,7 +107,9 @@ class NotifService {
       await _plugin
           .initialize(const InitializationSettings(android: android));
       await _show(
-        'Изменения в расписании · $group',
+        teacher != null
+            ? 'Изменения в вашем расписании'
+            : 'Изменения в расписании · $group',
         n > 1
             ? 'Найдено изменений: $n. Открой «Изменения», чтобы посмотреть.'
             : 'В расписании появились изменения. Открой «Изменения».',

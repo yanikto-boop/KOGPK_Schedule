@@ -7,6 +7,7 @@ import '../widgets.dart';
 import 'changes_screen.dart';
 import '../errors.dart';
 import '../pair.dart';
+import '../services/profile.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,6 +18,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String? _group;
   List<PairBlock> _today = [];
+  // режим преподавателя: пары сегодня кончились/их нет — показываем
+  // ближайший день с парами; здесь его подпись («Завтра», «пт, 24 октября»)
+  String? _dayLabel;
   bool _loading = true;
   String? _error;
   Timer? _ticker;
@@ -28,11 +32,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    Profile.changed.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
+    Profile.changed.removeListener(_load);
     _ticker?.cancel();
     super.dispose();
   }
@@ -48,9 +54,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _error = null;
     });
     try {
+      final teacher = await Profile.teacher();
+      if (teacher != null) {
+        await _loadTeacher(teacher);
+        return;
+      }
       final prefs = await SharedPreferences.getInstance();
       final group = prefs.getString('group');
       _group = group;
+      _dayLabel = null;
       if (group == null) {
         setState(() => _loading = false);
         return;
@@ -76,6 +88,37 @@ class _HomeScreenState extends State<HomeScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadTeacher(String teacher) async {
+    final data = await Api.teacher(teacher);
+    final now = DateTime.now();
+    final today = _todayIso();
+    var blocks = <PairBlock>[];
+    String? label;
+    for (final d in data.days) {
+      if (d.date == null || d.date!.compareTo(today) < 0) continue;
+      final date = DateTime.parse(d.date!);
+      final b = PairBlock.ofDay(d, date);
+      if (b.isEmpty) continue;
+      if (d.date == today) {
+        if (now.isAfter(b.last.end)) continue; // сегодня уже всё
+        blocks = b;
+        break;
+      }
+      blocks = b;
+      final tomorrow = DateTime(now.year, now.month, now.day + 1);
+      label = DateUtils.isSameDay(date, tomorrow)
+          ? 'Завтра'
+          : d.title.split(',').reversed.join(', ').trim();
+      break;
+    }
+    setState(() {
+      _group = Profile.short(teacher);
+      _today = blocks;
+      _dayLabel = label;
+      _loading = false;
+    });
   }
 
   @override
@@ -129,6 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Widget> _content() {
+    if (_dayLabel != null && _today.isNotEmpty) return _futureDay();
     if (_today.isEmpty) {
       return [
         const SizedBox(height: 60),
@@ -214,6 +258,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return widgets;
+  }
+
+  /// Ближайший день с парами (режим преподавателя): таймер до первой пары
+  /// и весь список пар этого дня.
+  List<Widget> _futureDay() {
+    final first = _today.first;
+    return [
+      _bigCard(
+        label: 'До первой пары · ${_dayLabel!}',
+        value: _fmtCountdown(first.start.difference(_now)),
+        sub: 'Начало в ${_hm(first.start)}',
+      ),
+      const SizedBox(height: 16),
+      for (final b in _today) ...[
+        _pairCard(b == first ? 'Первая пара' : '${b.num} пара', b,
+            accent: b == first),
+        const SizedBox(height: 10),
+      ],
+    ];
   }
 
   String _hm(DateTime t) =>
@@ -340,6 +403,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _meta(Icons.meeting_room_outlined, b.room),
                         if (b.teacher.isNotEmpty)
                           _meta(Icons.person_outline, b.teacher),
+                        if (b.group.isNotEmpty)
+                          _meta(Icons.groups_outlined, b.group),
                       ],
                     ),
                   ],

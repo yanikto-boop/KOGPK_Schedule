@@ -5,6 +5,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import '../services/widget_service.dart';
 import '../errors.dart';
+import '../services/profile.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -15,6 +16,7 @@ class ScheduleScreen extends StatefulWidget {
 class _ScheduleScreenState extends State<ScheduleScreen> {
   List<GroupRef> _groups = [];
   String? _selected;
+  String? _teacher; // режим преподавателя: показываем его пары, а не группы
   ScheduleData? _data;
   String? _error;
   bool _loading = true;
@@ -22,11 +24,28 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   void initState() {
     super.initState();
+    Profile.changed.addListener(_init);
     _init();
   }
 
+  @override
+  void dispose() {
+    Profile.changed.removeListener(_init);
+    super.dispose();
+  }
+
   Future<void> _init() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _data = null;
+    });
     try {
+      _teacher = await Profile.teacher();
+      if (_teacher != null) {
+        await _load();
+        return;
+      }
       final groups = await Api.groups();
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString('group');
@@ -48,19 +67,24 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Future<void> _load() async {
-    if (_selected == null) return;
+    final teacher = _teacher;
+    if (_selected == null && teacher == null) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await Api.schedule(_selected!);
+      final data = teacher != null
+          ? await Api.teacher(teacher)
+          : await Api.schedule(_selected!);
       setState(() {
         _data = data;
         _loading = false;
       });
       // обновляем виджеты на главном экране (не блокируем UI)
-      WidgetService.update(data, _selected!).catchError((_) {});
+      WidgetService.update(
+              data, teacher != null ? Profile.short(teacher) : _selected!)
+          .catchError((_) {});
     } catch (e) {
       setState(() {
         _error = friendlyError(e);
@@ -92,7 +116,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       appBar: AppBar(
         title: const Text('Расписание'),
         actions: [
-          if (_selected != null)
+          if (_teacher != null)
+            TextButton.icon(
+              onPressed: () async {
+                final t = await Profile.pickTeacher(context);
+                if (t != null) await Profile.setTeacher(t);
+              },
+              icon: const Icon(Icons.person, size: 18),
+              label: Text(Profile.short(_teacher!),
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            )
+          else if (_selected != null)
             TextButton.icon(
               onPressed: _pickGroup,
               icon: const Icon(Icons.swap_horiz, size: 18),
@@ -111,6 +145,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
     if (_error != null && _data == null) {
       return StatusView(message: _error!, isError: true, onRetry: _selected == null ? _init : _load);
+    }
+    if (_teacher != null) {
+      return ScheduleDayList(data: _data!, onRefresh: _load, teacherMode: true);
     }
     if (_selected == null) {
       return Center(

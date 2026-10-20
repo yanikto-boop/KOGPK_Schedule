@@ -14,7 +14,9 @@ class PairBlock {
   final String subject;
   final String room;
   final String teacher;
-  PairBlock(this.num, this.segments, this.subject, this.room, this.teacher);
+  final String group; // в режиме преподавателя — у какой группы пара
+  PairBlock(this.num, this.segments, this.subject, this.room, this.teacher,
+      {this.group = ''});
 
   DateTime get start => segments.first.start;
   DateTime get end => segments.last.end;
@@ -28,7 +30,8 @@ class PairBlock {
       final segs = parseSegments(l.time, date);
       if (segs.isEmpty) continue;
       final sg = l.subgroups.first;
-      blocks.add(PairBlock(l.num, segs, sg.subject, sg.room, sg.teacher));
+      blocks.add(PairBlock(l.num, segs, sg.subject, sg.room, sg.teacher,
+          group: sg.group));
     }
     blocks.sort((a, b) => a.start.compareTo(b.start));
     return blocks;
