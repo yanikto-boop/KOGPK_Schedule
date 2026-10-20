@@ -15,8 +15,8 @@ for _ in range(50):
 
 
 class WS:
-    def __init__(self, token):
-        self.w = connect(f"ws://127.0.0.1:{PORT}/ws?token={token}")
+    def __init__(self, token, v=2):
+        self.w = connect(f"ws://127.0.0.1:{PORT}/ws?token={token}&v={v}")
     def send_json(self, m): self.w.send(json.dumps(m))
     def receive_json(self): return json.loads(self.w.recv(timeout=10))
     def close(self): self.w.close()
@@ -125,6 +125,10 @@ try:
     assert lst[0]["id"] == room["id"] and lst[0]["status"] == "waiting"
     wb.send_json({"t": "join", "room": room["id"]})
     wd.send_json({"t": "join", "room": room["id"].lower()})
+    m = recv_until(wa, "room", lambda x: len(x["room"]["seats"]) == 3)
+    assert m["game"] is None                       # полная комната сама не стартует
+    for w in (wa, wb, wd):
+        w.send_json({"t": "ready"})
     socks = {a["id"]: wa, b["id"]: wb, d["id"]: wd}
     last = play_out(socks, random.Random(3))
     g = last[a["id"]]["game"]
@@ -155,12 +159,22 @@ try:
     wd.send_json({"t": "rooms"})
     assert all(r["id"] != pr["id"] for r in recv_until(wd, "rooms")["rooms"])
     wd.send_json({"t": "join", "room": pr["id"]})
+    wa.send_json({"t": "ready"}); wd.send_json({"t": "ready"})
     m = recv_until(wd, "room", lambda x: x["game"])
     assert m["game"]["rules"]["deck"] == 24 and len(m["game"]["hand"]) == 6
     # чужие карты не утекают
     assert "hands" not in m["game"] and set(m["game"]["counts"]) == {str(a["id"]), str(d["id"])}
     print("приватная комната ok")
-    for w in (wa, wb, wd):
+    # старый клиент (без «Готов») — готов сразу, партия стартует
+    wd.send_json({"t": "leave"}); recv_until(wd, "rooms")
+    wl = WS(b["token"], v=1); recv_until(wl, "rooms")
+    wl.send_json({"t": "join", "room": pr["id"]})
+    m = recv_until(wa, "room", lambda x: len(x["room"]["seats"]) == 2)
+    assert m["game"] is None or m["game"]["finished"] is False
+    wa.send_json({"t": "ready"})
+    recv_until(wl, "room", lambda x: x["game"] and not x["game"]["finished"])
+    print("совместимость со старым клиентом ok")
+    for w in (wa, wd, wl):
         w.close()
     print("СЕРВЕР: все тесты ok")
 finally:

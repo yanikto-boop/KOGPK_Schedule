@@ -23,6 +23,8 @@ Map<String, dynamic> game({
   List<int> waiting = const [1],
   Map<String, bool> can = const {},
   bool finished = false,
+  int version = 1,
+  List<Map> events = const [],
 }) =>
     {
       'seats': [1, 2, 3],
@@ -42,13 +44,15 @@ Map<String, dynamic> game({
       'waiting': waiting,
       'finished': finished,
       'loser': finished ? 2 : null,
-      'version': 1,
+      'version': version,
+      'events': events,
       'can': {'throw': false, 'transfer': false, 'take': false, 'pass': false, 'defend': false, ...can},
     };
 
-Future<void> show(WidgetTester t, Map<String, dynamic> g, {Map<String, dynamic>? result}) async {
+Future<void> show(WidgetTester t, Map<String, dynamic>? g,
+    {Map<String, dynamic>? result, Map<String, dynamic>? r}) async {
   final c = DurakClient.instance;
-  c.room = room();
+  c.room = r ?? room();
   c.game = g;
   c.result = result;
   c.me = 1;
@@ -135,5 +139,51 @@ void main() {
         result: {'loser': 2, 'loser_nick': 'Петя', 'out': []});
     expect(find.text('Победа! 🎉'), findsOneWidget);
     expect(find.textContaining('Ещё раз'), findsOneWidget);
+  });
+
+  testWidgets('комната ждёт «Готов»: кнопка шлёт ready и пропадает', (t) async {
+    final sent = <Map>[];
+    DurakClient.instance.onSend = sent.add;
+    await show(t, null, r: room(status: 'waiting'));
+    expect(find.text('Все в сборе'), findsOneWidget);
+    await t.tap(find.text('Готов'));
+    expect(sent.last, {'t': 'ready'});
+    DurakClient.instance.onSend = null;
+  });
+
+  testWidgets('раздача и ход соперника летят анимацией, без автоматики в конце', (t) async {
+    final c = DurakClient.instance;
+    await show(
+        t,
+        game(hand: ['6S', '7D', 'QH', '8C', '9C', 'JD'], version: 0, events: [
+          {'type': 'deal', 'v': 0, 'order': [1, 2, 3], 'n': 6}
+        ]));
+    await t.pump(const Duration(milliseconds: 50));
+    // карты летят из колоды — в руке пока не все
+    final hidden = find.byWidgetPredicate((w) => w is Visibility && !w.visible);
+    expect(hidden, findsWidgets);
+    await t.pumpAndSettle();
+    expect(hidden, findsNothing);
+    // соперник походил: карта прилетает от его аватарки
+    c.game = game(
+        hand: ['6S', '7D', 'QH', '8C', '9C', 'JD'],
+        table: [
+          ['KS', null]
+        ],
+        attacker: 2,
+        defender: 1,
+        version: 1,
+        can: {'defend': true, 'take': true},
+        events: [
+          {'type': 'deal', 'v': 0, 'order': [1, 2, 3], 'n': 6},
+          {'type': 'play', 'v': 1, 'who': 2, 'card': 'KS'}
+        ]);
+    c.notifyListeners();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(hidden, findsOneWidget);
+    await t.pumpAndSettle();
+    expect(hidden, findsNothing);
+    expect(find.text('Беру'), findsOneWidget);
   });
 }

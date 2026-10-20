@@ -14,9 +14,11 @@ import 'services/exact_alarm_prompt.dart';
 import 'services/notif_service.dart';
 import 'api.dart';
 import 'games/games_api.dart';
+import 'games/durak/cards.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  registerCardLicense();
   runApp(const ScheduleApp());
   // уведомления об изменениях расписания (не блокируем запуск)
   NotifService.init().catchError((_) {});

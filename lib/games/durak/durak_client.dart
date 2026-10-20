@@ -26,6 +26,7 @@ class DurakClient extends ChangeNotifier {
   Map<String, dynamic>? result;
   int? me;
   DateTime? deadline;
+  int deadlineTotal = 30; // сколько секунд было на ход — для кольца таймера
   final errors = StreamController<String>.broadcast();
 
   void start() {
@@ -48,7 +49,7 @@ class DurakClient extends ChangeNotifier {
     if (tok == null) return;
     try {
       _ch = WebSocketChannel.connect(
-          Uri.parse('${GamesApi.wsBase}?token=${Uri.encodeQueryComponent(tok)}'));
+          Uri.parse('${GamesApi.wsBase}?token=${Uri.encodeQueryComponent(tok)}&v=2'));
     } catch (_) {
       _scheduleRetry();
       return;
@@ -94,7 +95,12 @@ class DurakClient extends ChangeNotifier {
         result = m['result'] as Map<String, dynamic>?;
         me = m['me'] as int?;
         final d = m['deadline'];
+        final prev = deadline;
         deadline = d == null ? null : DateTime.now().add(Duration(seconds: d as int));
+        // новый отсчёт — запомнить его длину
+        if (d != null && (prev == null || deadline!.difference(prev).inSeconds.abs() > 1)) {
+          deadlineTotal = (d as int).clamp(1, 99);
+        }
       case 'error':
         errors.add(m['msg'] as String? ?? 'Ошибка');
         if (m['auth'] == false) _wanted = false;
@@ -129,7 +135,8 @@ class DurakClient extends ChangeNotifier {
       });
   void join(String id) => send({'t': 'join', 'room': id});
   void leave() => send({'t': 'leave'});
-  void rematch() => send({'t': 'rematch'});
+  /// «Готов» — и перед первой партией, и для реванша.
+  void ready() => send({'t': 'ready'});
   void refreshRooms() => send({'t': 'rooms'});
   void act(String t, {String? card, int? idx}) => send({
         't': t,

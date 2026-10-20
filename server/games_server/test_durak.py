@@ -74,7 +74,8 @@ except RuleError: pass
 g.defend(2, "10S", 0)
 g.throw(1, "6H")          # подкинул шестёрку
 g.defend(2, "AH", 1)      # козырем
-# у атакующего нет 6/10/A — подкинуть нечего, бито автоматически
+assert g.table and g.waiting_on() == [1]   # автоматики нет: ждём «Бито»
+g.pass_(1)
 assert not g.table and g.discard == 4 and g.attacker == 2 and g.defender == 1
 g = Game([1, 2], Rules(2, 36), random.Random(5))
 g.hands = {1: ["6S","10C","7S","8C","9D","QH"], 2: ["7C","10S","JS","KD","AH","6D"]}
@@ -85,7 +86,8 @@ g.pass_(1); assert not g.table and g.attacker == 2
 # «беру» + вдогонку
 g.hands = {1: ["6S","6C","7S","8C","9D","QH"], 2: ["7C","10S","JS","KD","AH","6D"]}
 g.attacker, g.defender = 1, 2; g._new_limit(); g.throw(1, "6S"); g.take(2)
-g.throw(1, "6C")  # шестёрок больше нет — забирает сразу
+g.throw(1, "6C"); assert g.table           # шестёрок больше нет, но ждём «Пас»
+g.pass_(1)
 assert len(g.hands[2]) == 8 and g.attacker == 1
 print("подкидной сценарий ok")
 
@@ -99,7 +101,8 @@ g.transfer(2, "6C")
 assert g.attacker == 2 and g.defender == 3 and len(g.table) == 2
 assert not g.can_transfer(3)
 g.take(3)
-# 1 подкидывает? 6 у него нет — у всех пусто для подкидывания → забирает сразу
+assert g.table and set(g.waiting_on()) == {1, 2}  # оба подкидывающих жмут «Пас»
+g.pass_(1); g.pass_(2)
 assert not g.table and len(g.hands[3]) == 8, g.hands[3]
 assert g.attacker == 1 and g.defender == 2, (g.attacker, g.defender)
 print("переводной сценарий ok")
@@ -114,4 +117,14 @@ g = Game([1, 2, 3, 4], r, random.Random(3)); g.attacker, g.defender = 1, 2
 assert set(g.throwers()) == {1, 3, 4}
 try: Rules(5, 24); raise SystemExit("5 игроков на 24 карты нельзя")
 except RuleError: pass
+# события для анимаций
+g = Game([1, 2], Rules(2, 36), random.Random(5))
+assert g.events[0]["type"] == "deal" and g.events[0]["v"] == 0
+a = g.attacker; d = g.defender
+c = sorted(g.hands[a])[0]; g.throw(a, c)
+assert g.events[-1] == {"type": "play", "v": g.version, "who": a, "card": c}
+g.take(d); g.pass_(a)
+kinds = [e["type"] for e in g.events if e["v"] == g.version]
+assert kinds[:2] == ["take", "draw"], kinds
+print("события ok")
 print("все тесты ok")

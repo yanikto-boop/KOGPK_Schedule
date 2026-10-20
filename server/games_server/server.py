@@ -7,7 +7,7 @@ API расписания отношения не имеет. Комнаты и �
 
 Протокол WebSocket /ws?token=… — JSON-сообщения {"t": тип, ...}:
   клиент → rooms | create{players,deck,transfer,throw_all,private} | join{room}
-           | leave | rematch | throw{card} | defend{card,idx} | transfer{card}
+           | leave | ready (= rematch) | throw{card} | defend{card,idx} | transfer{card}
            | take | pass | ping
   сервер → rooms{rooms} | room{room,game,deadline,result} | error{msg} | pong
 """
@@ -31,6 +31,8 @@ import durak
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.environ.get("GAMES_DB", os.path.join(BASE, "games.db"))
 TURN_SECONDS = 30
+AFTER_PASS_SECONDS = 5   # главный атакующий сказал «бито» — остальным на подкидывание
+READY_WAIT = 60          # кто не нажал «Готов» за минуту при полной комнате — выходит
 DISCONNECT_GRACE = 60       # столько ждём вернувшегося игрока посреди партии
 LOBBY_GRACE = 15            # в ожидающей комнате — меньше
 
@@ -329,6 +331,7 @@ class Room:
         self.game: durak.Game | None = None
         self.result = None
         self.deadline = 0.0
+        self.ready_since = 0.0
         self.seen_version = -1
         self.created = time.time()
 
@@ -349,6 +352,7 @@ user_room: dict[int, str] = {}
 conns: dict[int, WebSocket] = {}
 nicks: dict[int, str] = {}
 gone_since: dict[int, float] = {}
+proto: dict[int, int] = {}   # 1 — старый клиент без кнопки «Готов»: он готов сразу
 lock = asyncio.Lock()
 
 
@@ -405,6 +409,8 @@ async def after_change(room: Room):
     if g and g.version != room.seen_version:
         room.seen_version = g.version
         room.deadline = time.time() + TURN_SECONDS
+        if g.attacker in g.passed and not g.finished:
+            room.deadline = time.time() + AFTER_PASS_SECONDS
         if g.finished and room.result is None:
             finish_stats(room)
     await push_room(room)
@@ -417,6 +423,15 @@ def start_game(room: Room):
     room.ready.clear()
     room.seen_version = -1
     log.info("room %s start %s", room.id, room.seats)
+
+
+async def legacy_ready(room: Room):
+    for p in room.seats:
+        if proto.get(p, 1) < 2:
+            room.ready.add(p)
+    if len(room.seats) == room.rules.players and room.ready >= set(room.seats):
+        start_game(room)
+        await after_change(room)
 
 
 async def leave_room(uid: int):
@@ -458,6 +473,8 @@ async def handle(uid: int, m: dict):
             room.id = Room(uid, rules, room.private).id
         rooms[room.id] = room
         user_room[uid] = room.id
+        if proto.get(uid, 1) < 2:
+            room.ready.add(uid)
         await push_room(room)
         await push_lobby()
         return
@@ -475,12 +492,10 @@ async def handle(uid: int, m: dict):
             raise durak.RuleError("Комната заполнена")
         room.seats.append(uid)
         user_room[uid] = rid
+        room.ready_since = time.time()  # новичку — полная минута на «Готов»
+        await legacy_ready(room)
         room.game, room.result = (None, None) if room.status == "finished" else (room.game, room.result)
-        if len(room.seats) == room.rules.players:
-            start_game(room)
-            await after_change(room)
-        else:
-            await push_room(room)
+        await push_room(room)
         await push_lobby()
         return
     room = rooms.get(user_room.get(uid, ""))
@@ -489,9 +504,11 @@ async def handle(uid: int, m: dict):
     if t == "leave":
         await leave_room(uid)
         return
-    if t == "rematch":
-        if room.status != "finished":
+    if t in ("ready", "rematch"):
+        if room.status == "playing":
             raise durak.RuleError("Партия ещё идёт")
+        if not room.ready:
+            room.ready_since = time.time()
         room.ready.add(uid)
         if len(room.seats) == room.rules.players and room.ready >= set(room.seats):
             start_game(room)
@@ -522,7 +539,7 @@ async def handle(uid: int, m: dict):
 
 
 @app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket, token: str = ""):
+async def ws_endpoint(ws: WebSocket, token: str = "", v: int = 1):
     u = user_by_token(token)
     await ws.accept()
     if not u:
@@ -531,6 +548,7 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
         return
     uid = u["id"]
     nicks[uid] = u["nick"]
+    proto[uid] = v
     old = conns.get(uid)
     conns[uid] = ws
     gone_since.pop(uid, None)
@@ -593,6 +611,12 @@ async def ticker():
                         gone_since.pop(uid, None)
                         await leave_room(uid)
                 for room in list(rooms.values()):
+                    if (room.status != "playing" and room.ready and len(room.seats) == room.rules.players
+                            and now - room.ready_since > READY_WAIT):
+                        for p in [p for p in room.seats if p not in room.ready]:
+                            await send(p, {"t": "error", "msg": "Вы не нажали «Готов»"})
+                            await leave_room(p)
+                        continue
                     g = room.game
                     if g and not g.finished and now > room.deadline:
                         for p in list(g.waiting_on()):

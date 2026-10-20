@@ -14,8 +14,9 @@
     того же ранга, что все карты на столе, — защищается следующий игрок;
   * «Беру»: атакующие ещё могут подкинуть до лимита, потом защитник забирает
     стол и пропускает ход;
-  * отбой заканчивается, когда всё побито (или защитник берёт) и все, кто
-    может подкидывать, сказали «пас»/«бито» — либо подкидывать больше нельзя;
+  * отбой заканчивается, только когда всё побито (или защитник берёт) и все,
+    кто может подкидывать, сами нажали «Бито»/«Пас» — автоматики нет, чтобы
+    было видно, куда уходят карты (молчуна дожимает таймер сервера);
   * добор до 6: сначала главный атакующий, потом остальные по кругу,
     защитник последним.
 Кто остался с картами, когда у остальных они кончились и колода пуста, — дурак.
@@ -90,9 +91,12 @@ class Game:
         self.loser = None                    # None при ничьей
         self.first_bout = True
         self.version = 0                     # растёт с каждым изменением
+        # события для анимаций клиентов: раздача, ход, бито, взял, добор
+        self.events: list[dict] = []
         self.attacker = self._lowest_trump_holder()
         self.defender = self._next_active(self.attacker)
         self._new_limit()
+        self.events.append({"type": "deal", "v": 0, "order": self.seats, "n": HAND})
 
     # ── круг ──
     def active(self, p) -> bool:
@@ -178,6 +182,11 @@ class Game:
     def _touch(self):
         self.version += 1
 
+    def _event(self, kind: str, **data):
+        # событие помечается версией, в которой его надо показать
+        self.events.append({"type": kind, "v": self.version + 1, **data})
+        del self.events[:-20]
+
     def throw(self, p, card):
         """Первый ход или подкидывание."""
         if not self.can_throw(p, card):
@@ -185,8 +194,9 @@ class Game:
         self.hands[p].remove(card)
         self.table.append([card, None])
         self.passed.clear()
+        self._event("play", who=p, card=card)
         self._touch()
-        self._maybe_end_bout()
+        self._maybe_end_bout()  # подкинул последнюю карту, а защитник уже берёт
 
     def defend(self, p, card, idx):
         if self.finished or p != self.defender or self.taking:
@@ -198,14 +208,16 @@ class Game:
         self.hands[p].remove(card)
         self.table[idx][1] = card
         self.passed.clear()  # на столе новый ранг — снова можно подкидывать
+        self._event("play", who=p, card=card)
         self._touch()
-        self._maybe_end_bout()
+        self._maybe_end_bout()  # подкидывать некому — отбой сразу
 
     def transfer(self, p, card):
         if not self.can_transfer(p, card):
             raise RuleError("Перевести нельзя")
         self.hands[p].remove(card)
         self.table.append([card, None])
+        self._event("play", who=p, card=card)
         self.attacker = p
         self.defender = self._next_active(p)
         self.limit = min(5 if self.first_bout else HAND,
@@ -244,9 +256,7 @@ class Game:
             return [self.attacker]
         if not self.taking and not self.all_beaten():
             return [self.defender]
-        room = self.attack_count() < self.limit
-        return [p for p in self.throwers() if p not in self.passed
-                and room and any(self._fits(c) for c in self.hands[p])]
+        return [p for p in self.throwers() if p not in self.passed]
 
     def auto(self, p):
         """Истёк таймер: самое безопасное действие за игрока."""
@@ -265,10 +275,7 @@ class Game:
             return
         if not (self.taking or self.all_beaten()):
             return
-        room = self.attack_count() < self.limit
-        pending = [p for p in self.throwers() if p not in self.passed
-                   and room and any(self._fits(c) for c in self.hands[p])]
-        if pending:
+        if [p for p in self.throwers() if p not in self.passed]:
             return
         self._end_bout()
 
@@ -277,8 +284,10 @@ class Game:
         took = self.taking
         if took:
             self.hands[self.defender].extend(cards)
+            self._event("take", who=self.defender, cards=cards)
         else:
             self.discard += len(cards)
+            self._event("bito", cards=cards)
         self.table = []
         self.taking = False
         self.passed.clear()
@@ -290,9 +299,16 @@ class Game:
             if q not in (self.attacker, self.defender) and self.active(q):
                 order.append(q)
         order.append(self.defender)
+        draws = []
         for p in order:
+            n = 0
             while len(self.hands[p]) < HAND and self.deck:
                 self.hands[p].append(self.deck.pop())
+                n += 1
+            if n:
+                draws.append([p, n])
+        if draws:
+            self._event("draw", draws=draws)
         if not self.deck:
             for p in self.seats:
                 if self.active(p) and not self.hands[p]:
@@ -348,6 +364,7 @@ class Game:
             "finished": self.finished,
             "loser": self.loser,
             "version": self.version,
+            "events": self.events[-8:],
             "can": {
                 "throw": can(lambda: self.can_throw(me)),
                 "transfer": can(lambda: self.can_transfer(me)),
