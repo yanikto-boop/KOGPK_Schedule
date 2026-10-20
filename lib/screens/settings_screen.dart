@@ -13,7 +13,7 @@ import 'changes_screen.dart';
 import 'rooms_screen.dart';
 import '../services/notif_service.dart';
 import '../services/profile.dart';
-import '../games/block_boom/block_boom.dart';
+import '../games/games_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -264,7 +264,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.border),
             ),
-            child: SwitchListTile(
+            child: Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile(
               secondary:
                   const Icon(Icons.notifications_active, color: AppColors.primary),
               title: const Text('Уведомления об изменениях',
@@ -278,10 +280,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() => _notif = v);
               },
             ),
+            ),
           ),
-          _tile(Icons.videogame_asset_outlined, 'Block Boom',
-              subtitle: 'Головоломка с блоками — на перемену',
-              onTap: () => openBlockBoom(context)),
+          _tile(Icons.videogame_asset_outlined, 'Игры',
+              subtitle: 'Block Boom, дурак онлайн, таблица лидеров',
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const GamesScreen()))),
           _tile(Icons.meeting_room, 'Кабинеты',
               subtitle: 'Расписание кабинетов и свободные на этой паре',
               onTap: () => Navigator.push(context,
@@ -342,15 +346,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.border),
       ),
-      child: ListTile(
-        leading: Icon(icon, color: AppColors.primary),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: subtitle != null
-            ? Text(subtitle,
-                style: const TextStyle(color: AppColors.textDim, fontSize: 12))
-            : null,
-        trailing: const Icon(Icons.chevron_right, color: AppColors.textDim),
-        onTap: onTap,
+      // своя Material — иначе фон контейнера перекрывает эффект нажатия
+      child: Material(
+        type: MaterialType.transparency,
+        child: ListTile(
+          leading: Icon(icon, color: AppColors.primary),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: subtitle != null
+              ? Text(subtitle,
+                  style: const TextStyle(color: AppColors.textDim, fontSize: 12))
+              : null,
+          trailing: const Icon(Icons.chevron_right, color: AppColors.textDim),
+          onTap: onTap,
+        ),
       ),
     );
   }

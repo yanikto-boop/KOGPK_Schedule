@@ -1,12 +1,19 @@
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import 'services/client_info.dart';
 
 /// Клиент к Schedule API (бэкенд на германском сервере).
 class Api {
   static const base = 'https://vpn-ornux.space/sapi';
-  static final _c = TaggedClient();
+  static http.Client _c = TaggedClient();
+  @visibleForTesting
+  static set client(http.Client c) => _c = c;
 
   static Future<List<GroupRef>> groups() async {
     final r = await _get('/groups');
@@ -181,12 +188,51 @@ class Api {
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
   }
 
+  /// true — последний ответ взят из сохранённой копии (нет сети).
+  static final offline = ValueNotifier<bool>(false);
+
+  // Что сохраняем для офлайна: расписание и справочники. Живые данные
+  // (автобусы, свободные кабинеты сейчас, админка) в старом виде бесполезны.
+  static const _cacheable = [
+    '/schedule', '/teacher', '/teachers', '/teacher_changes', '/groups',
+    '/changes', '/rooms', '/room?',
+  ];
+  static bool _isCacheable(String path) =>
+      !path.startsWith('/rooms/free') && _cacheable.any(path.startsWith);
+
+  static Future<File> _cacheFile(String path) async {
+    final dir = Directory('${(await getApplicationSupportDirectory()).path}/api_cache');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/${sha1.convert(utf8.encode(path))}.json');
+  }
+
   static Future<Map<String, dynamic>> _get(String path) async {
-    final resp = await _c
-        .get(Uri.parse('$base$path'))
-        .timeout(const Duration(seconds: 15));
+    final cache = _isCacheable(path);
+    http.Response resp;
+    try {
+      resp = await _c
+          .get(Uri.parse('$base$path'))
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      // нет сети / таймаут — отдаём сохранённое, если есть
+      if (cache) {
+        try {
+          final f = await _cacheFile(path);
+          if (await f.exists()) {
+            offline.value = true;
+            return jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+          }
+        } catch (_) {}
+      }
+      rethrow;
+    }
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
-    return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    final body = utf8.decode(resp.bodyBytes);
+    offline.value = false;
+    if (cache) {
+      _cacheFile(path).then((f) => f.writeAsString(body)).catchError((_) => File(''));
+    }
+    return jsonDecode(body) as Map<String, dynamic>;
   }
 
   static String _msg(http.Response r) {

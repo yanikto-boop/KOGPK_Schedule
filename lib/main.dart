@@ -12,12 +12,16 @@ import 'screens/settings_screen.dart';
 import 'services/update_flow.dart';
 import 'services/exact_alarm_prompt.dart';
 import 'services/notif_service.dart';
+import 'api.dart';
+import 'games/games_api.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ScheduleApp());
   // уведомления об изменениях расписания (не блокируем запуск)
   NotifService.init().catchError((_) {});
+  // рекорд Block Boom, набранный без сети
+  GamesApi.flushBb();
 }
 
 class ScheduleApp extends StatelessWidget {
@@ -91,6 +95,7 @@ class _RootScreenState extends State<RootScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      GamesApi.flushBb();
       ExactAlarmPrompt.maybeAsk(context);
     }
   }
@@ -106,7 +111,24 @@ class _RootScreenState extends State<RootScreen>
   @override
   Widget build(BuildContext context) {
     final scaffold = Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: Column(children: [
+        // без сети экраны показывают сохранённые данные — говорим об этом
+        ValueListenableBuilder<bool>(
+          valueListenable: Api.offline,
+          builder: (_, off, _) => !off
+              ? const SizedBox.shrink()
+              : Container(
+                  width: double.infinity,
+                  color: AppColors.surface,
+                  padding: EdgeInsets.fromLTRB(
+                      12, MediaQuery.of(context).padding.top + 6, 12, 6),
+                  child: const Text('Нет сети — показаны сохранённые данные',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                ),
+        ),
+        Expanded(child: IndexedStack(index: _index, children: _pages)),
+      ]),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: AppColors.surface,

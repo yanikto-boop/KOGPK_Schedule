@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import '../api.dart';
 import 'profile.dart';
+import '../games/games_api.dart';
 
 const _taskName = 'kogpk_changes_check';
 const _channelId = 'schedule_changes';
@@ -17,6 +18,7 @@ void callbackDispatcher() {
     try {
       await NotifService.checkChangesBackground();
     } catch (_) {}
+    await GamesApi.flushBb(); // рекорд, набранный без сети
     return true;
   });
 }

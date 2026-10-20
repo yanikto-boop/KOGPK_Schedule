@@ -137,6 +137,10 @@ class Profile extends ChangeNotifier {
 
   void clearGame() => _p.remove('bb_game');
 
+  /// Вызывается со счётом каждой засчитанной партии — приложение копит
+  /// рекорд в зашифрованной записи и шлёт в таблицу (lib/games/games_api.dart).
+  static void Function(int score)? onRecord;
+
   /// Засчитывает законченную партию: рекорд, опыт, статистика.
   GameRecord recordGame(GameModel m) {
     final before = levelInfo.level;
@@ -160,8 +164,9 @@ class Profile extends ChangeNotifier {
       ..setInt('bb_best', best)
       ..setInt('bb_bestCombo', bestCombo)
       ..setInt('bb_totalLines', totalLines)
-      ..remove('game');
+      ..remove('bb_game');
     notifyListeners();
+    onRecord?.call(m.score);
     return rec;
   }
 }

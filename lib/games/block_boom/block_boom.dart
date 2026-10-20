@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'audio/sfx.dart';
 import 'game/profile.dart';
 import 'ui/menu_screen.dart';
+import '../games_api.dart';
+import '../sealed_store.dart';
 
 final _theme = ThemeData(
   brightness: Brightness.dark,
@@ -45,6 +47,12 @@ Future<void> openBlockBoom(BuildContext context) async {
 
     sync();
     p.addListener(sync);
+    await GamesApi.load();
+    Profile.onRecord = GamesApi.submitBb;
+    // первый запуск с таблицей лидеров: переносим рекорд, набранный раньше
+    if (await SealedStore.read('bb') == null) {
+      await GamesApi.submitBb(p.best);
+    }
     unawaited(Sfx.init());
     _profile = p;
   }
