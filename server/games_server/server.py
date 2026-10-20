@@ -80,6 +80,19 @@ _BAD = ("хуи", "хуе", "хуя", "пизд", "ебат", "ебан", "еб�
         "нигер", "нигга", "nigger", "nigga", "fuck", "shit", "админ", "аdмin", "модер", "кogпк")
 
 
+# «еб» в начале слова, в том числе с приставкой: «Ебень», «Заебись», «Долбоеб».
+# Слово целиком, а не подстрока ника — иначе пострадали бы «Небо», «Победа», «Себастьян».
+_EB_PREFIX = ("", "за", "у", "вы", "по", "на", "про", "от", "отъ", "съ", "до", "раз", "въ", "под",
+              "при", "об", "долбо", "недо", "пере", "из", "ни", "не")
+
+
+def _obscene_word(word: str) -> bool:
+    for k in {nick_key(word), nick_key2(word)}:
+        if any(k.startswith(p + "еб") for p in _EB_PREFIX):
+            return True
+    return False
+
+
 def nick_key(nick: str) -> str:
     k = nick.lower().translate(_LOOK).translate(str.maketrans("йы", "ии"))
     k = re.sub(r"[^0-9a-zа-я]", "", k)
@@ -121,7 +134,8 @@ def check_nick(nick: str) -> str:
     if len(key) < 3:
         raise HTTPException(400, "Слишком короткий ник")
     loose = key.replace("i", "и")
-    if any(b in k for b in _BAD for k in (key, loose, nick_key2(nick))):
+    if any(b in k for b in _BAD for k in (key, loose, nick_key2(nick))) or \
+            any(_obscene_word(w) for w in re.split(r"[^A-Za-zА-Яа-яЁё0-9|]+", nick) if w):
         raise HTTPException(400, "Такой ник нельзя")
     return nick
 
@@ -167,13 +181,30 @@ class ScoreIn(BaseModel):
     score: int
 
 
-def _ip(req: Request) -> str:
-    return req.headers.get("x-real-ip") or (req.client.host if req.client else "?")
+def _ip(req: Request) -> str | None:
+    """Настоящий IP клиента или None. За xray+nginx (unix-сокет) его может не быть."""
+    ip = (req.headers.get("x-real-ip") or "").strip()
+    if ip and ip not in ("unix:", "127.0.0.1", "::1") and not ip.startswith("unix"):
+        return ip
+    return None
+
+
+@app.get("/whoami")
+def whoami(req: Request):
+    return {"ip": _ip(req), "x_real_ip": req.headers.get("x-real-ip"),
+            "xff": req.headers.get("x-forwarded-for")}
 
 
 @app.post("/register")
 def register(body: NickIn, req: Request):
-    rate_limit("reg:" + _ip(req), 3600, burst=5)
+    # Попытки (в т.ч. «занят»/«нельзя») — мягко, от перебора; в лимит 5 в час
+    # идут только созданные аккаунты: в колледже многие за одним Wi-Fi.
+    ip = _ip(req) or "unknown"
+    rate_limit("try:" + ip, 600, burst=30)
+    ok_key = "reg:" + ip
+    now = time.monotonic()
+    if len([t for t in _rate.get(ok_key, []) if now - t < 3600]) >= 5:
+        raise HTTPException(429, "Слишком много новых ников с этой сети, попробуйте позже")
     nick = check_nick(body.nick)
     token = secrets.token_urlsafe(32)
     if nick_taken(nick):
@@ -185,7 +216,8 @@ def register(body: NickIn, req: Request):
             uid = cur.lastrowid
     except sqlite3.IntegrityError:
         raise HTTPException(409, "Такой ник уже занят")
-    log.info("register %s %s", uid, nick)
+    rate_limit(ok_key, 3600, burst=6)  # засчитываем созданный аккаунт
+    log.info("register %s %s ip=%s", uid, nick, ip)
     return {"id": uid, "nick": nick, "token": token}
 
 
