@@ -12,6 +12,7 @@ import 'support_screen.dart';
 import 'changes_screen.dart';
 import 'rooms_screen.dart';
 import '../services/notif_service.dart';
+import '../services/profile.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '';
   int _tapCount = 0;
   bool _notif = true;
+  String? _teacher; // режим преподавателя
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
@@ -34,6 +36,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
     NotifService.enabled().then((v) {
       if (mounted) setState(() => _notif = v);
     });
+    Profile.changed.addListener(_loadRole);
+    _loadRole();
+  }
+
+  @override
+  void dispose() {
+    Profile.changed.removeListener(_loadRole);
+    super.dispose();
+  }
+
+  Future<void> _loadRole() async {
+    final t = await Profile.teacher();
+    if (mounted) setState(() => _teacher = t);
+  }
+
+  Future<void> _chooseRole() async {
+    final teacher = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            const Text('Режим',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            ListTile(
+              leading: const Icon(Icons.school_outlined),
+              title: const Text('Я студент'),
+              subtitle: const Text('Расписание группы'),
+              trailing: _teacher == null
+                  ? const Icon(Icons.check, color: AppColors.primary)
+                  : null,
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Я преподаватель'),
+              subtitle: const Text('Свои пары и время до них везде в приложении'),
+              trailing: _teacher != null
+                  ? const Icon(Icons.check, color: AppColors.primary)
+                  : null,
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (teacher == null || !mounted) return;
+    if (!teacher) {
+      if (_teacher != null) await Profile.setTeacher(null);
+      return;
+    }
+    final name = await Profile.pickTeacher(context);
+    if (name != null) await Profile.setTeacher(name);
   }
 
   void _onVersionTap() {
@@ -185,8 +245,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          _tile(_teacher != null ? Icons.person : Icons.school, 'Режим',
+              subtitle: _teacher != null
+                  ? 'Преподаватель · ${Profile.short(_teacher!)}'
+                  : 'Студент · нажмите, если вы преподаватель',
+              onTap: _chooseRole),
           _tile(Icons.sync_alt, 'Изменения расписания',
-              subtitle: 'Что поменялось в расписании твоей группы',
+              subtitle: _teacher != null
+                  ? 'Что поменялось в ваших парах'
+                  : 'Что поменялось в расписании твоей группы',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const ChangesScreen()))),
           Container(

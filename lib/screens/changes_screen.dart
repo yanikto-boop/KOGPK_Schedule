@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../api.dart';
+import '../services/profile.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../services/notif_service.dart';
@@ -31,14 +32,17 @@ class _ChangesScreenState extends State<ChangesScreen> {
       _error = null;
     });
     try {
+      final teacher = await Profile.teacher();
       final prefs = await SharedPreferences.getInstance();
       final group = prefs.getString('group');
-      _group = group;
-      if (group == null) {
+      _group = teacher != null ? Profile.short(teacher) : group;
+      if (teacher == null && group == null) {
         setState(() => _loading = false);
         return;
       }
-      final items = await Api.changes(group);
+      final items = teacher != null
+          ? await Api.teacherChanges(teacher)
+          : await Api.changes(group!);
       if (items.isNotEmpty) {
         await NotifService.markSeen(items.first.ts);
       }

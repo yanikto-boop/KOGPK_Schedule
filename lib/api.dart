@@ -26,6 +26,14 @@ class Api {
         .toList();
   }
 
+  static Future<List<ScheduleChange>> teacherChanges(String name) async {
+    final r =
+        await _get('/teacher_changes?name=${Uri.encodeQueryComponent(name)}');
+    return (r['changes'] as List)
+        .map((e) => ScheduleChange.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   static Future<List<String>> teachers() async {
     final r = await _get('/teachers');
     return (r['teachers'] as List).cast<String>();
