@@ -41,7 +41,7 @@ jobs:
       - run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
       # Gradle на раннере подписывает не тем ключом — переподписываем явно и сверяем отпечаток
       - name: Sign with release key and verify
