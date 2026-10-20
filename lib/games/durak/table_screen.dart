@@ -171,24 +171,15 @@ class _DurakTableScreenState extends State<DurakTableScreen> {
     final others = [for (var k = 1; k < seats.length; k++) seats[(i + k) % seats.length]];
     final left = c.deadline == null ? null : c.deadline!.difference(DateTime.now()).inSeconds.clamp(0, 99);
 
-    final unbeaten = [for (var k = 0; k < table.length; k++) if (table[k][1] == null) k];
-    final tableRanks = {for (final p in table) for (final x in p) if (x != null) cardRank(x)};
-    bool canThrowCard(String x) => can['throw'] == true && (table.isEmpty || tableRanks.contains(cardRank(x)));
-    bool canTransferCard(String x) => can['transfer'] == true && table.isNotEmpty && cardRank(x) == cardRank(table[0][0]!);
-    List<int> targets(String x) => can['defend'] == true
-        ? unbeaten.where((k) => beats(x, table[k][0]!, trump)).toList()
-        : const [];
-    bool usable(String x) => canThrowCard(x) || canTransferCard(x) || targets(x).isNotEmpty;
-
     String status;
     if (g['finished'] == true) {
       status = '';
     } else if (me == defender && waiting.contains(me)) {
-      status = 'Отбивайтесь или берите';
+      status = 'Ваша защита';
     } else if (me == attacker && table.isEmpty) {
       status = 'Ваш ход';
     } else if (waiting.contains(me)) {
-      status = g['taking'] == true ? 'Подкидывайте вдогонку или «Пас»' : 'Подкидывайте или «Бито»';
+      status = 'Можно подкинуть';
     } else if (out.contains(me)) {
       status = 'Вы вышли из игры 🎉';
     } else {
@@ -196,18 +187,10 @@ class _DurakTableScreenState extends State<DurakTableScreen> {
     }
 
     final sel = _sel;
-    final actions = <Widget>[];
-    if (sel != null && canThrowCard(sel)) {
-      actions.add(_btn(table.isEmpty ? 'Ходить' : 'Подкинуть', () => _do('throw', card: sel)));
-    }
-    if (sel != null && canTransferCard(sel)) {
-      actions.add(_btn('Перевести', () => _do('transfer', card: sel)));
-    }
-    if (sel != null && targets(sel).length == 1) {
-      actions.add(_btn('Побить', () => _do('defend', card: sel, idx: targets(sel).first)));
-    }
-    if (can['take'] == true) actions.add(_btn('Беру', () => _do('take'), warn: true));
-    if (can['pass'] == true) actions.add(_btn(g['taking'] == true ? 'Пас' : 'Бито', () => _do('pass')));
+    final actions = <Widget>[
+      if (can['take'] == true) _btn('Беру', () => _do('take'), warn: true),
+      if (can['pass'] == true) _btn(g['taking'] == true ? 'Пас' : 'Бито', () => _do('pass')),
+    ];
 
     return Stack(children: [
       Column(children: [
@@ -243,33 +226,34 @@ class _DurakTableScreenState extends State<DurakTableScreen> {
             Text('Бито: ${g['discard']}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
           ]),
         ),
-        // стол
+        // стол: сюда тащат карту — ход, подкидывание или перевод
         Expanded(
-          child: Center(
-            child: table.isEmpty
-                ? Text(status, style: const TextStyle(color: Colors.white70, fontSize: 16))
-                : Wrap(
-                    spacing: 14,
-                    runSpacing: 14,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      for (var k = 0; k < table.length; k++)
-                        SizedBox(
-                          width: 72,
-                          height: 104,
-                          child: Stack(children: [
-                            PlayingCard(table[k][0],
-                                width: 60,
-                                highlight: sel != null && table[k][1] == null && targets(sel).contains(k),
-                                onTap: sel != null && targets(sel).contains(k)
-                                    ? () => _do('defend', card: sel, idx: k)
-                                    : null),
-                            if (table[k][1] != null)
-                              Positioned(left: 12, top: 16, child: PlayingCard(table[k][1], width: 60)),
-                          ]),
+          child: DragTarget<String>(
+            onAcceptWithDetails: (d) => _drop(d.data, null),
+            builder: (context, hover, _) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: sel == null ? null : () => _drop(sel, null),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                margin: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: Colors.white.withValues(alpha: hover.isNotEmpty ? 0.08 : 0),
+                ),
+                child: Center(
+                  child: table.isEmpty
+                      ? Text(status, style: const TextStyle(color: Colors.white70, fontSize: 16))
+                      : Wrap(
+                          spacing: 14,
+                          runSpacing: 14,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            for (var k = 0; k < table.length; k++) _pair(table[k], k, sel),
+                          ],
                         ),
-                    ],
-                  ),
+                ),
+              ),
+            ),
           ),
         ),
         if (table.isNotEmpty || status.isNotEmpty)
@@ -299,11 +283,22 @@ class _DurakTableScreenState extends State<DurakTableScreen> {
                 for (final x in hand)
                   Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: PlayingCard(x,
-                        width: 58,
-                        selected: x == sel,
-                        dim: !usable(x),
-                        onTap: () => setState(() => _sel = _sel == x ? null : x)),
+                    // тянуть вверх — к столу; горизонтальный свайп листает руку
+                    child: Draggable<String>(
+                      data: x,
+                      affinity: Axis.vertical,
+                      onDragStarted: () => setState(() => _sel = null),
+                      feedback: Material(
+                        type: MaterialType.transparency,
+                        child: Transform.rotate(
+                            angle: -0.06, child: PlayingCard(x, width: 66)),
+                      ),
+                      childWhenDragging: Opacity(opacity: 0.25, child: PlayingCard(x, width: 58)),
+                      child: PlayingCard(x,
+                          width: 58,
+                          selected: x == sel,
+                          onTap: () => setState(() => _sel = _sel == x ? null : x)),
+                    ),
                   ),
               ],
             ),
@@ -312,6 +307,56 @@ class _DurakTableScreenState extends State<DurakTableScreen> {
       ]),
       if (g['finished'] == true) _result(room),
     ]);
+  }
+
+  /// Карта брошена на стол (idx == null) или на карту стола idx.
+  /// Что это значит — решает роль; правильность хода проверяет сервер.
+  void _drop(String card, int? idx) {
+    final g = c.game;
+    if (g == null) return;
+    final defender = g['defender'] == c.me;
+    final table = g['table'] as List;
+    if (defender && idx != null && (table[idx] as List)[1] == null) {
+      _do('defend', card: card, idx: idx);
+    } else if (defender && idx == null) {
+      _do('transfer', card: card);
+    } else if (!defender) {
+      _do('throw', card: card);
+    }
+  }
+
+  /// Пара на столе; новая карта появляется с анимацией, на неотбитую можно бросить карту.
+  Widget _pair(List<String?> p, int k, String? sel) {
+    Widget appear(String card, Widget child) => TweenAnimationBuilder<double>(
+          key: ValueKey(card),
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutBack,
+          builder: (_, v, ch) => Opacity(
+              opacity: v.clamp(0, 1), child: Transform.scale(scale: 0.6 + 0.4 * v, child: ch)),
+          child: child,
+        );
+    return SizedBox(
+      width: 72,
+      height: 104,
+      child: Stack(children: [
+        DragTarget<String>(
+          onWillAcceptWithDetails: (_) => p[1] == null,
+          onAcceptWithDetails: (d) => _drop(d.data, k),
+          builder: (_, hover, _) => AnimatedScale(
+            scale: hover.isNotEmpty ? 1.08 : 1,
+            duration: const Duration(milliseconds: 120),
+            child: appear(
+                p[0]!,
+                PlayingCard(p[0],
+                    width: 60,
+                    onTap: sel != null && p[1] == null ? () => _drop(sel, k) : null)),
+          ),
+        ),
+        if (p[1] != null)
+          Positioned(left: 12, top: 16, child: appear(p[1]!, PlayingCard(p[1], width: 60))),
+      ]),
+    );
   }
 
   void _do(String t, {String? card, int? idx}) {

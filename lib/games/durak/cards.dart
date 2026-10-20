@@ -21,15 +21,11 @@ class PlayingCard extends StatelessWidget {
   final String? card; // null — рубашка
   final double width;
   final bool selected;
-  final bool dim;
-  final bool highlight;
   final VoidCallback? onTap;
   const PlayingCard(this.card,
       {super.key,
       this.width = 56,
       this.selected = false,
-      this.dim = false,
-      this.highlight = false,
       this.onTap});
 
   @override
@@ -56,9 +52,7 @@ class PlayingCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(width * 0.12),
-          border: Border.all(
-              color: highlight ? const Color(0xFF4F8CFF) : Colors.black26,
-              width: highlight ? 2.5 : 1),
+          border: Border.all(color: Colors.black26),
           boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Stack(children: [
@@ -86,7 +80,7 @@ class PlayingCard extends StatelessWidget {
         transform: Matrix4.translationValues(0, selected ? -14 : 0, 0),
         width: width,
         height: h,
-        child: Opacity(opacity: dim ? 0.45 : 1, child: face),
+        child: face,
       ),
     );
   }

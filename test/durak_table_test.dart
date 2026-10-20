@@ -66,17 +66,29 @@ void main() {
     expect(beats('KD', '6S', 'H'), isFalse);
   });
 
-  testWidgets('мой первый ход: выбрал карту — «Ходить»', (t) async {
+  testWidgets('без подсказок: карты не затемняются, кнопок хода нет', (t) async {
     await show(t, game(hand: ['6S', '7D', 'QH'], can: {'throw': true}));
     expect(find.text('Ваш ход'), findsOneWidget);
-    expect(find.text('Ходить'), findsNothing);
-    await t.tap(find.byType(PlayingCard).at(4)); // 3 рубашки у соперников + козырь = 0..3
-    await t.pump();
-    expect(find.text('Ходить'), findsOneWidget);
-    expect(t.takeException(), isNull);
+    expect(find.byType(Opacity).evaluate().where((e) => (e.widget as Opacity).opacity < 1), isEmpty);
+    for (final b in ['Ходить', 'Подкинуть', 'Побить', 'Перевести']) {
+      expect(find.text(b), findsNothing);
+    }
   });
 
-  testWidgets('защита: «Побить» и «Беру», перевод', (t) async {
+  testWidgets('перетащил карту на стол — ход', (t) async {
+    final sent = <Map>[];
+    DurakClient.instance.onSend = sent.add;
+    await show(t, game(hand: ['6S', '7D', 'QH'], can: {'throw': true}));
+    await t.drag(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '7D'), const Offset(0, -260));
+    await t.pumpAndSettle();
+    expect(sent, [
+      {'t': 'throw', 'card': '7D'}
+    ]);
+  });
+
+  testWidgets('защитник: на карту — побить, на стол — перевести; тап как запасной путь', (t) async {
+    final sent = <Map>[];
+    DurakClient.instance.onSend = sent.add;
     await show(
         t,
         game(
@@ -87,15 +99,23 @@ void main() {
             attacker: 2,
             defender: 1,
             can: {'defend': true, 'take': true, 'transfer': true}));
-    expect(find.textContaining('Отбивайтесь или берите'), findsOneWidget);
+    await t.pumpAndSettle();
     expect(find.text('Беру'), findsOneWidget);
-    await t.tap(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '7S'));
+    final target = t.getCenter(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '6S'));
+    final from = t.getCenter(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '7S'));
+    await t.dragFrom(from, target - from);
+    await t.pumpAndSettle();
+    expect(sent.last, {'t': 'defend', 'card': '7S', 'idx': 0});
+    final from2 = t.getCenter(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '6C'));
+    await t.dragFrom(from2, Offset(target.dx - 130 - from2.dx, target.dy - from2.dy)); // пустое место стола
+    await t.pumpAndSettle();
+    expect(sent.last, {'t': 'transfer', 'card': '6C'});
+    await t.tap(find.byWidgetPredicate((w) => w is PlayingCard && w.card == 'KD'));
     await t.pump();
-    expect(find.text('Побить'), findsOneWidget);
-    await t.tap(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '6C'));
+    await t.tap(find.byWidgetPredicate((w) => w is PlayingCard && w.card == '6S'));
     await t.pump();
-    expect(find.text('Перевести'), findsOneWidget);
-    expect(find.text('Побить'), findsNothing);
+    expect(sent.last, {'t': 'defend', 'card': 'KD', 'idx': 0});
+    DurakClient.instance.onSend = null;
   });
 
   testWidgets('всё побито — «Бито»', (t) async {

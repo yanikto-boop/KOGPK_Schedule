@@ -105,7 +105,11 @@ class DurakClient extends ChangeNotifier {
     notifyListeners();
   }
 
+  @visibleForTesting
+  void Function(Map<String, dynamic>)? onSend;
+
   void send(Map<String, dynamic> m) {
+    onSend?.call(m);
     _ch?.sink.add(jsonEncode(m));
   }
 
