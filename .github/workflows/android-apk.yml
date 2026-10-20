@@ -3,7 +3,7 @@ name: Android APK (signed)
 on:
   workflow_dispatch:
   push:
-    branches: [ci/ios-build]
+    branches: [friend/casebattle]
 
 jobs:
   build:
@@ -48,7 +48,7 @@ jobs:
         run: |
           APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
           VER=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
-          OUT="KOGPK_Schedule_${VER}.apk"
+          OUT="KOGPK_Schedule_${VER}_friend.apk"
           "$APKSIGNER" sign --ks ~/.android/debug.keystore --ks-pass pass:android \
             --key-pass pass:android --ks-key-alias androiddebugkey \
             --out "$OUT" build/app/outputs/flutter-apk/app-release.apk

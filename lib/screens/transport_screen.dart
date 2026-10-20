@@ -433,7 +433,7 @@ class _StationForecastScreenState extends State<StationForecastScreen> {
       await HomeWidget.saveWidgetData<String>(
           'bus_widget_name', widget.station.name);
       await HomeWidget.updateWidget(
-          androidName: 'BusWidget', name: 'BusWidget');
+          qualifiedAndroidName: 'com.kogpk.schedule_app.BusWidget', name: 'BusWidget');
     }
     await prefs.setStringList('fav_stops', fav);
     if (mounted) {

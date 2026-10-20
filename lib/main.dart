@@ -9,7 +9,7 @@ import 'screens/schedule_screen.dart';
 import 'screens/teachers_screen.dart';
 import 'screens/journal_screen.dart';
 import 'screens/settings_screen.dart';
-import 'services/update_flow.dart';
+import 'screens/casebattle_screen.dart';
 import 'services/exact_alarm_prompt.dart';
 import 'services/notif_service.dart';
 
@@ -51,6 +51,8 @@ class _RootScreenState extends State<RootScreen>
     JournalScreen(),
     SettingsScreen(),
   ];
+  // сайт грузим только при первом заходе на вкладку, а не при старте
+  bool _cbOpened = false;
 
   Future<void> _maybeOnboard() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,7 +67,6 @@ class _RootScreenState extends State<RootScreen>
     if (mounted) setState(() => _showOnboarding = false);
   }
 
-  Timer? _updateTimer;
   Timer? _alarmTimer;
 
   @override
@@ -76,9 +77,8 @@ class _RootScreenState extends State<RootScreen>
     // автопроверка обновления при запуске (с небольшой задержкой,
     // чтобы не мешать первой отрисовке)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) UpdateFlow.checkOnLaunch(context);
-      });
+      // сборка для друга: автообновление на релиз выключено, иначе предложит
+      // поставить обычное приложение без вкладки Case Battle
       // позже проверки обновлений, чтобы два диалога не всплыли разом
       _alarmTimer = Timer(const Duration(seconds: 6), () {
         if (mounted) ExactAlarmPrompt.maybeAsk(context);
@@ -98,7 +98,6 @@ class _RootScreenState extends State<RootScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _updateTimer?.cancel();
     _alarmTimer?.cancel();
     super.dispose();
   }
@@ -106,7 +105,10 @@ class _RootScreenState extends State<RootScreen>
   @override
   Widget build(BuildContext context) {
     final scaffold = Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: _index, children: [
+        ..._pages,
+        _cbOpened ? const CaseBattleScreen() : const SizedBox.shrink(),
+      ]),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: AppColors.surface,
@@ -117,7 +119,10 @@ class _RootScreenState extends State<RootScreen>
         ),
         child: NavigationBar(
           selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
+          onDestinationSelected: (i) => setState(() {
+            _index = i;
+            if (i == _pages.length) _cbOpened = true;
+          }),
           height: 64,
           destinations: const [
             NavigationDestination(
@@ -140,6 +145,10 @@ class _RootScreenState extends State<RootScreen>
                 icon: Icon(Icons.settings_outlined),
                 selectedIcon: Icon(Icons.settings, color: AppColors.primary),
                 label: 'Ещё'),
+            NavigationDestination(
+                icon: Icon(Icons.casino_outlined),
+                selectedIcon: Icon(Icons.casino, color: AppColors.primary),
+                label: 'Кейсы'),
           ],
         ),
       ),

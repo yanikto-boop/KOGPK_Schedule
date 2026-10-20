@@ -81,12 +81,12 @@ class WidgetService {
         'w_timeline', jsonEncode(timeline.map((p) => p.toJson()).toList()));
 
     await HomeWidget.updateWidget(
-        androidName: 'ScheduleWidgetSmall', name: 'ScheduleWidgetSmall');
+        qualifiedAndroidName: 'com.kogpk.schedule_app.ScheduleWidgetSmall', name: 'ScheduleWidgetSmall');
     await HomeWidget.updateWidget(
-        androidName: 'ScheduleWidgetWide', name: 'ScheduleWidgetWide');
+        qualifiedAndroidName: 'com.kogpk.schedule_app.ScheduleWidgetWide', name: 'ScheduleWidgetWide');
     await HomeWidget.updateWidget(
-        androidName: 'CountdownWidgetSmall', name: 'CountdownWidgetSmall');
+        qualifiedAndroidName: 'com.kogpk.schedule_app.CountdownWidgetSmall', name: 'CountdownWidgetSmall');
     await HomeWidget.updateWidget(
-        androidName: 'CountdownWidgetMedium', name: 'CountdownWidgetMedium');
+        qualifiedAndroidName: 'com.kogpk.schedule_app.CountdownWidgetMedium', name: 'CountdownWidgetMedium');
   }
 }
