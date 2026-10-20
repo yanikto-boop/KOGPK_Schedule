@@ -13,6 +13,7 @@ import 'changes_screen.dart';
 import 'rooms_screen.dart';
 import '../services/notif_service.dart';
 import '../services/profile.dart';
+import '../games/block_boom/block_boom.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -278,6 +279,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
+          _tile(Icons.videogame_asset_outlined, 'Block Boom',
+              subtitle: 'Головоломка с блоками — на перемену',
+              onTap: () => openBlockBoom(context)),
           _tile(Icons.meeting_room, 'Кабинеты',
               subtitle: 'Расписание кабинетов и свободные на этой паре',
               onTap: () => Navigator.push(context,
