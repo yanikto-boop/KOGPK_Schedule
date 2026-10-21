@@ -11,17 +11,19 @@ import 'sealed_store.dart';
 class GamesApi {
   static const base = 'https://vpn-ornux.space/gapi';
   static const wsBase = 'wss://vpn-ornux.space/gapi/ws';
-  static const _kToken = 'g_token', _kNick = 'g_nick', _kId = 'g_id';
+  static const _kToken = 'g_token', _kNick = 'g_nick', _kId = 'g_id', _kGroup = 'g_group';
 
   static String? token;
   static String? nick;
   static int? id;
+  static String? groupTag; // своя группа тегом у ника в таблицах
 
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     token = p.getString(_kToken);
     nick = p.getString(_kNick);
     id = p.getInt(_kId);
+    groupTag = p.getString(_kGroup);
   }
 
   static bool get registered => token != null;
@@ -72,6 +74,15 @@ class GamesApi {
     nick = j['nick'] as String;
     final p = await SharedPreferences.getInstance();
     await p.setString(_kNick, nick!);
+  }
+
+  /// Тег-группа: только из списка групп колледжа (проверяет сервер); '' — без тега.
+  static Future<void> setGroupTag(String g) async {
+    final j = await _post('/group_tag', {'group': g});
+    final v = j['group'] as String? ?? '';
+    groupTag = v.isEmpty ? null : v;
+    final p = await SharedPreferences.getInstance();
+    v.isEmpty ? await p.remove(_kGroup) : await p.setString(_kGroup, v);
   }
 
   /// Рекорд Block Boom: сначала в зашифрованную запись на устройстве, потом

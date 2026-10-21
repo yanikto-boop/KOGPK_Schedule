@@ -63,6 +63,11 @@ def init_db():
             durak_wins INTEGER NOT NULL DEFAULT 0,
             durak_losses INTEGER NOT NULL DEFAULT 0
         )""")
+        # тег у ника в таблице лидеров («Администратор»); ставится только руками в базе
+        try:
+            con.execute("ALTER TABLE users ADD COLUMN tag TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
 
 
 init_db()
@@ -247,7 +252,7 @@ def check_nick_free(nick: str):
 def _me(u):
     return {"id": u["id"], "nick": u["nick"], "bb_best": u["bb_best"],
             "durak_games": u["durak_games"], "durak_wins": u["durak_wins"],
-            "durak_losses": u["durak_losses"]}
+            "durak_losses": u["durak_losses"], "tag": u["tag"]}
 
 
 @app.get("/me")
@@ -275,15 +280,15 @@ def bb_score(body: ScoreIn, authorization: str | None = Header(None)):
 def _top(col: str, order: str, limit: int, uid, where: str):
     limit = max(1, min(limit, 100))
     with db() as con:
-        rows = con.execute(f"SELECT id, nick, {col} FROM users WHERE {where} ORDER BY {order} LIMIT ?",
+        rows = con.execute(f"SELECT id, nick, tag, {col} FROM users WHERE {where} ORDER BY {order} LIMIT ?",
                            (limit,)).fetchall()
         mine = None
         if uid:
             r = con.execute(f"SELECT * FROM users WHERE id=?", (uid,)).fetchone()
             if r:
                 above = con.execute(f"SELECT COUNT(*) FROM users WHERE {where} AND ({order_key(order, r)})").fetchone()[0]
-                mine = {"rank": above + 1, "nick": r["nick"], **{k: r[k] for k in col.split(", ")}}
-    return [{"rank": i + 1, "nick": r["nick"], "me": r["id"] == uid, **{k: r[k] for k in col.split(", ")}}
+                mine = {"rank": above + 1, "nick": r["nick"], "tag": r["tag"], **{k: r[k] for k in col.split(", ")}}
+    return [{"rank": i + 1, "nick": r["nick"], "tag": r["tag"], "me": r["id"] == uid, **{k: r[k] for k in col.split(", ")}}
             for i, r in enumerate(rows)], mine
 
 

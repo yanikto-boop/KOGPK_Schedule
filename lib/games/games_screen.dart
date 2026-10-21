@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../api.dart';
 import '../theme.dart';
 import 'block_boom/block_boom.dart';
 import 'durak/lobby_screen.dart';
@@ -57,6 +60,93 @@ class BoredStrip extends StatelessWidget {
   }
 }
 
+/// Выбор группы-тега: список групп с поиском, своя группа — первой.
+class GroupTagDialog extends StatefulWidget {
+  const GroupTagDialog({super.key});
+  @override
+  State<GroupTagDialog> createState() => _GroupTagDialogState();
+}
+
+class _GroupTagDialogState extends State<GroupTagDialog> {
+  List<GroupRef>? _groups;
+  String? _mine, _error;
+  String _q = '';
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    () async {
+      final p = await SharedPreferences.getInstance();
+      _mine = p.getString('group');
+      try {
+        final g = await Api.groups();
+        if (mounted) setState(() => _groups = g);
+      } catch (e) {
+        if (mounted) setState(() => _error = 'Нет сети');
+      }
+    }();
+  }
+
+  Future<void> _pick(String g) async {
+    setState(() => _busy = true);
+    try {
+      await GamesApi.setGroupTag(g);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() => (_busy = false, _error = '$e'));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = (_groups ?? const <GroupRef>[])
+        .where((g) => g.name.toLowerCase().contains(_q.toLowerCase()))
+        .toList()
+      ..sort((a, b) => (b.name == _mine ? 1 : 0) - (a.name == _mine ? 1 : 0));
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: const Text('Тег — группа'),
+      content: SizedBox(
+        width: 320,
+        height: 420,
+        child: Column(children: [
+          TextField(
+            decoration: const InputDecoration(hintText: 'Поиск группы', isDense: true),
+            onChanged: (v) => setState(() => _q = v),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_error!, style: const TextStyle(color: AppColors.textDim)),
+            ),
+          ListTile(
+            dense: true,
+            title: const Text('Без тега'),
+            enabled: !_busy,
+            onTap: () => _pick(''),
+          ),
+          Expanded(
+            child: _groups == null && _error == null
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(children: [
+                    for (final g in list)
+                      ListTile(
+                        dense: true,
+                        enabled: !_busy,
+                        title: Text(g.name == _mine ? '${g.name} · моя' : g.name),
+                        trailing: g.name == GamesApi.groupTag ? const Icon(Icons.check, color: AppColors.primary) : null,
+                        onTap: () => _pick(g.name),
+                      ),
+                  ]),
+          ),
+        ]),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Закрыть'))],
+    );
+  }
+}
+
 /// «Ещё» → «Игры»: ник, Block Boom, дурак онлайн, таблицы лидеров.
 class GamesScreen extends StatefulWidget {
   const GamesScreen({super.key});
@@ -95,6 +185,16 @@ class _GamesScreenState extends State<GamesScreen> {
                   if (mounted) setState(() {});
                 },
               ),
+              if (GamesApi.registered)
+                _card(
+                  icon: Icons.sell_outlined,
+                  title: GamesApi.groupTag == null ? 'Тег не выбран' : 'Тег: ${GamesApi.groupTag}',
+                  subtitle: 'Своя группа рядом с ником в таблицах лидеров',
+                  onTap: () async {
+                    await showDialog(context: context, builder: (_) => const GroupTagDialog());
+                    if (mounted) setState(() {});
+                  },
+                ),
               const SizedBox(height: 8),
               _card(
                 icon: Icons.grid_view_rounded,
@@ -283,7 +383,36 @@ class _BoardState extends State<_Board> {
       ),
       child: Row(children: [
         SizedBox(width: 38, child: Text(medal ?? '${r.rank}', style: const TextStyle(fontWeight: FontWeight.w700))),
-        Expanded(child: Text(r.nick, style: const TextStyle(fontWeight: FontWeight.w600))),
+        Expanded(
+          child: Row(children: [
+            Flexible(
+                child: Text(r.nick,
+                    overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+            if ((r.raw['tag'] as String? ?? '').isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(left: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  gradient: const LinearGradient(colors: [Color(0xFFFFD34D), Color(0xFFFF9A2E)]),
+                ),
+                child: Text(r.raw['tag'] as String,
+                    style: const TextStyle(color: Color(0xFF1A1200), fontSize: 11, fontWeight: FontWeight.w700)),
+              ),
+            if ((r.raw['group'] as String? ?? '').isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(left: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.surface2,
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(r.raw['group'] as String,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
+          ]),
+        ),
         Text(widget.value(r), style: const TextStyle(color: AppColors.textDim)),
       ]),
     );

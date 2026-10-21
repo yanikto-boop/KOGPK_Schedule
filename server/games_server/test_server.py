@@ -62,6 +62,10 @@ top = c.get("/bb/top", headers=H(a)).json()
 assert [t["nick"] for t in top["top"]] == ["Петя", "Вася Пупкин"], top
 assert top["me"]["rank"] == 2
 assert c.get("/bb/top", headers=H(d)).json()["me"] is None
+import sqlite3 as _sq
+_c = _sq.connect(env["GAMES_DB"]); _c.execute("UPDATE users SET tag='Администратор' WHERE id=?", (b["id"],)); _c.commit(); _c.close()
+top = c.get("/bb/top").json()
+assert top["top"][0]["tag"] == "Администратор" and top["top"][1]["tag"] == "", top
 print("block boom ok")
 
 
