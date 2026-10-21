@@ -14,6 +14,7 @@ API расписания отношения не имеет. Комнаты и �
 import asyncio
 import hashlib
 import json
+import urllib.request
 import logging
 import os
 import random
@@ -64,10 +65,13 @@ def init_db():
             durak_losses INTEGER NOT NULL DEFAULT 0
         )""")
         # тег у ника в таблице лидеров («Администратор»); ставится только руками в базе
-        try:
-            con.execute("ALTER TABLE users ADD COLUMN tag TEXT NOT NULL DEFAULT ''")
-        except sqlite3.OperationalError:
-            pass
+        # группа, которую игрок сам выбрал тегом (только из настоящего списка групп)
+        # tag и tag_color правятся из админки (admin.vpn-ornux.space → «Теги игроков»)
+        for col in ("tag", "group_tag", "tag_color"):
+            try:
+                con.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
 
 
 init_db()
@@ -244,6 +248,42 @@ def rename(body: NickIn, authorization: str | None = Header(None)):
     return {"id": u["id"], "nick": nick}
 
 
+# ─── тег-группа ──────────────────────────────────────────────────────────────
+GROUPS_URL = os.environ.get("GAMES_GROUPS_URL", "http://127.0.0.1:8092/groups")
+_groups_cache: dict = {"at": 0.0, "names": set()}
+
+
+def college_groups() -> set:
+    """Названия групп из API расписания, кэш на час. GAMES_GROUPS — список для тестов."""
+    if os.environ.get("GAMES_GROUPS"):
+        return set(os.environ["GAMES_GROUPS"].split(","))
+    if time.time() - _groups_cache["at"] > 3600 or not _groups_cache["names"]:
+        try:
+            with urllib.request.urlopen(GROUPS_URL, timeout=5) as r:
+                names = {g["name"] for g in json.loads(r.read())["groups"]}
+            if names:
+                _groups_cache.update(at=time.time(), names=names)
+        except Exception:
+            log.warning("groups list unavailable")
+    return _groups_cache["names"]
+
+
+class GroupIn(BaseModel):
+    group: str
+
+
+@app.post("/group_tag")
+def group_tag(body: GroupIn, authorization: str | None = Header(None)):
+    u = auth(authorization)
+    rate_limit(f"gt:{u['id']}", 3)
+    g = body.group.strip()
+    if g and g not in college_groups():
+        raise HTTPException(400, "Такой группы нет")
+    with db() as con:
+        con.execute("UPDATE users SET group_tag=? WHERE id=?", (g, u["id"]))
+    return {"group": g}
+
+
 @app.get("/check_nick")
 def check_nick_free(nick: str):
     return {"free": not nick_taken(check_nick(nick))}
@@ -252,7 +292,7 @@ def check_nick_free(nick: str):
 def _me(u):
     return {"id": u["id"], "nick": u["nick"], "bb_best": u["bb_best"],
             "durak_games": u["durak_games"], "durak_wins": u["durak_wins"],
-            "durak_losses": u["durak_losses"], "tag": u["tag"]}
+            "durak_losses": u["durak_losses"], "tag": u["tag"], "tag_color": u["tag_color"], "group": u["group_tag"]}
 
 
 @app.get("/me")
@@ -280,15 +320,17 @@ def bb_score(body: ScoreIn, authorization: str | None = Header(None)):
 def _top(col: str, order: str, limit: int, uid, where: str):
     limit = max(1, min(limit, 100))
     with db() as con:
-        rows = con.execute(f"SELECT id, nick, tag, {col} FROM users WHERE {where} ORDER BY {order} LIMIT ?",
+        rows = con.execute(f"SELECT id, nick, tag, tag_color, group_tag, {col} FROM users WHERE {where} ORDER BY {order} LIMIT ?",
                            (limit,)).fetchall()
         mine = None
         if uid:
             r = con.execute(f"SELECT * FROM users WHERE id=?", (uid,)).fetchone()
             if r:
                 above = con.execute(f"SELECT COUNT(*) FROM users WHERE {where} AND ({order_key(order, r)})").fetchone()[0]
-                mine = {"rank": above + 1, "nick": r["nick"], "tag": r["tag"], **{k: r[k] for k in col.split(", ")}}
-    return [{"rank": i + 1, "nick": r["nick"], "tag": r["tag"], "me": r["id"] == uid, **{k: r[k] for k in col.split(", ")}}
+                mine = {"rank": above + 1, "nick": r["nick"], "tag": r["tag"], "tag_color": r["tag_color"],
+                        "group": r["group_tag"], **{k: r[k] for k in col.split(", ")}}
+    return [{"rank": i + 1, "nick": r["nick"], "tag": r["tag"], "tag_color": r["tag_color"], "group": r["group_tag"],
+             "me": r["id"] == uid, **{k: r[k] for k in col.split(", ")}}
             for i, r in enumerate(rows)], mine
 
 

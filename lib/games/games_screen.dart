@@ -394,10 +394,16 @@ class _BoardState extends State<_Board> {
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  gradient: const LinearGradient(colors: [Color(0xFFFFD34D), Color(0xFFFF9A2E)]),
+                  color: _tagColor(r),
+                  gradient: _tagColor(r) == null
+                      ? const LinearGradient(colors: [Color(0xFFFFD34D), Color(0xFFFF9A2E)])
+                      : null,
                 ),
                 child: Text(r.raw['tag'] as String,
-                    style: const TextStyle(color: Color(0xFF1A1200), fontSize: 11, fontWeight: FontWeight.w700)),
+                    style: TextStyle(
+                        color: (_tagColor(r)?.computeLuminance() ?? 1) > 0.4 ? const Color(0xFF1A1200) : Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700)),
               ),
             if ((r.raw['group'] as String? ?? '').isNotEmpty)
               Container(
@@ -417,4 +423,11 @@ class _BoardState extends State<_Board> {
       ]),
     );
   }
+}
+
+/// Цвет плашки тега из админки (#RRGGBB); null — стандартная золотая.
+Color? _tagColor(LeaderRow r) {
+  final c = r.raw['tag_color'] as String? ?? '';
+  if (!RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(c)) return null;
+  return Color(0xFF000000 | int.parse(c.substring(1), radix: 16));
 }
