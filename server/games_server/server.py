@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Игровой сервер КОГПК: ники, таблицы лидеров, дурак онлайн.
+"""Игровой сервер КОГПК: ники, таблицы лидеров, дурак и бильярд онлайн.
 
 Отдельный сервис (127.0.0.1:8093, наружу — /gapi/ через nginx), к боту и
 API расписания отношения не имеет. Комнаты и партии живут в памяти процесса —
@@ -10,8 +10,11 @@ API расписания отношения не имеет. Комнаты и �
            | leave | ready (= rematch) | throw{card} | defend{card,idx} | transfer{card}
            | take | pass | ping
   сервер → rooms{rooms} | room{room,game,deadline,result} | error{msg} | pong
+
+Бильярд — отдельный WebSocket /pws?token=… (см. раздел «бильярд» ниже).
 """
 import asyncio
+import copy
 import hashlib
 import json
 import urllib.request
@@ -27,6 +30,7 @@ import time
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+import billiards
 import durak
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -70,6 +74,12 @@ def init_db():
         for col in ("tag", "group_tag", "tag_color"):
             try:
                 con.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+        # бильярд онлайн (с ботом не считается)
+        for col in ("pool_games", "pool_wins"):
+            try:
+                con.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
 
@@ -292,7 +302,8 @@ def check_nick_free(nick: str):
 def _me(u):
     return {"id": u["id"], "nick": u["nick"], "bb_best": u["bb_best"],
             "durak_games": u["durak_games"], "durak_wins": u["durak_wins"],
-            "durak_losses": u["durak_losses"], "tag": u["tag"], "tag_color": u["tag_color"], "group": u["group_tag"]}
+            "durak_losses": u["durak_losses"], "pool_games": u["pool_games"], "pool_wins": u["pool_wins"],
+            "tag": u["tag"], "tag_color": u["tag_color"], "group": u["group_tag"]}
 
 
 @app.get("/me")
@@ -338,6 +349,9 @@ def order_key(order: str, r) -> str:
     # «кто выше меня» для строки r при заданной сортировке
     if order.startswith("bb_best"):
         return f"bb_best > {int(r['bb_best'])} OR (bb_best = {int(r['bb_best'])} AND id < {int(r['id'])})"
+    if order.startswith("pool_wins"):
+        return (f"pool_wins > {int(r['pool_wins'])} OR (pool_wins = {int(r['pool_wins'])} AND "
+                f"(pool_games < {int(r['pool_games'])} OR (pool_games = {int(r['pool_games'])} AND id < {int(r['id'])})))")
     return (f"durak_wins > {int(r['durak_wins'])} OR (durak_wins = {int(r['durak_wins'])} AND "
             f"(durak_games < {int(r['durak_games'])} OR (durak_games = {int(r['durak_games'])} AND id < {int(r['id'])})))")
 
@@ -361,9 +375,20 @@ def durak_top(limit: int = 50, authorization: str | None = Header(None)):
     return {"top": top, "me": mine}
 
 
+@app.get("/pool/top")
+def pool_top(limit: int = 50, authorization: str | None = Header(None)):
+    u = user_by_token((authorization or "").removeprefix("Bearer ").strip())
+    top, mine = _top("pool_wins, pool_games", "pool_wins DESC, pool_games ASC, id ASC",
+                     limit, u["id"] if u else None, "pool_games > 0")
+    if mine and not u["pool_games"]:
+        mine = None
+    return {"top": top, "me": mine}
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "rooms": len(rooms), "online": len(conns)}
+    return {"ok": True, "rooms": len(rooms), "online": len(conns),
+            "pool_rooms": len(prooms), "pool_online": len(pconns)}
 
 
 # ─── комнаты ─────────────────────────────────────────────────────────────────
@@ -678,6 +703,396 @@ async def ticker():
             log.exception("ticker")
 
 
+# ─── бильярд ─────────────────────────────────────────────────────────────────
+# WebSocket /pws?token=… — JSON {"t": тип, ...}:
+#   клиент → rooms | create{mode,private} | bot{mode,level} | join{room} | leave | ready
+#            | shot{dx,dy,power,spin,place?,ball?} | aim{dx,dy,ball?,place?,power?} | ping
+#   сервер → rooms{rooms} | room{room,game,deadline,result} | shot{shot} | aim{...}
+#            | error{msg} | pong
+# Удар считает сервер (billiards.simulate) и шлёт «shot» с кадрами, следом «room»
+# с итоговым столом — клиент проигрывает кадры и только потом показывает «room».
+SHOT_SECONDS = 45
+BOT_NAMES = {1: "Бот · лёгкий", 2: "Бот · средний", 3: "Бот · сильный"}
+
+
+class PoolRoom:
+    def __init__(self, owner: int, mode: str, private: bool, bot_level: int = 0):
+        self.id = "".join(random.choices(string.ascii_uppercase.replace("O", "").replace("I", "") + "23456789", k=5))
+        self.owner = owner
+        self.mode = mode
+        self.private = private
+        self.bot = bot_level            # 0 — живой соперник
+        self.seats: list[int] = [owner] + ([-bot_level] if bot_level else [])
+        self.ready: set[int] = set()
+        self.game: billiards.Game | None = None
+        self.result = None
+        self.deadline = 0.0
+        self.ready_since = 0.0
+        self.seen_version = -1
+        self.created = time.time()
+        self.bot_for = -1               # версия партии, на которую бот уже думает
+
+    @property
+    def status(self):
+        if self.game and not self.game.finished:
+            return "playing"
+        return "finished" if self.result else "waiting"
+
+    def summary(self):
+        return {"id": self.id, "owner": pnick(self.owner), "mode": self.mode,
+                "players": [pnick(p) for p in self.seats], "status": self.status,
+                "private": self.private, "bot": self.bot}
+
+
+prooms: dict[str, PoolRoom] = {}
+puser_room: dict[int, str] = {}
+pconns: dict[int, WebSocket] = {}
+pgone_since: dict[int, float] = {}
+plock = asyncio.Lock()
+
+
+def pnick(uid: int) -> str:
+    return BOT_NAMES.get(-uid, "Бот") if uid < 0 else nicks.get(uid, "?")
+
+
+async def psend(uid: int, msg: dict):
+    ws = pconns.get(uid)
+    if not ws:
+        return
+    try:
+        await ws.send_text(json.dumps(msg, ensure_ascii=False, separators=(",", ":")))
+    except Exception:
+        pass
+
+
+def plobby_list():
+    order = {"waiting": 0, "playing": 1, "finished": 2}
+    rs = sorted((r for r in prooms.values() if not r.private and not r.bot),
+                key=lambda r: (order[r.status], -r.created))
+    return [r.summary() for r in rs][:100]
+
+
+async def ppush_lobby():
+    msg = {"t": "rooms", "rooms": plobby_list()}
+    for uid in list(pconns):
+        if uid not in puser_room:
+            await psend(uid, msg)
+
+
+async def ppush_room(room: PoolRoom):
+    left = max(0, int(room.deadline - time.time())) if room.status == "playing" else None
+    if room.game and room.game.seats[room.game.turn] < 0:
+        left = None   # бот думает без таймера
+    info = {**room.summary(), "seats": [{"id": p, "nick": pnick(p), "online": p < 0 or p in pconns,
+                                          "ready": p < 0 or p in room.ready} for p in room.seats],
+            "owner_id": room.owner}
+    for uid in room.seats:
+        if uid > 0:
+            await psend(uid, {"t": "room", "room": info, "me": uid,
+                              "game": room.game.view(uid) if room.game else None,
+                              "deadline": left, "result": room.result})
+
+
+def pfinish(room: PoolRoom):
+    g = room.game
+    win = g.seats[g.winner] if g.winner is not None else None
+    if not room.bot:
+        with db() as con:
+            for p in g.seats:
+                con.execute("UPDATE users SET pool_games=pool_games+1, pool_wins=pool_wins+? WHERE id=?",
+                            (1 if p == win else 0, p))
+    room.result = {"winner": win, "winner_nick": pnick(win) if win is not None else None, "note": g.note}
+    room.ready.clear()
+    log.info("pool %s finished, winner=%s", room.id, win)
+
+
+async def pafter_change(room: PoolRoom):
+    g = room.game
+    if g and g.version != room.seen_version:
+        room.seen_version = g.version
+        room.deadline = time.time() + SHOT_SECONDS
+        if g.finished and room.result is None:
+            pfinish(room)
+    await ppush_room(room)
+    if g and not g.finished and g.seats[g.turn] < 0 and room.bot_for != g.version:
+        room.bot_for = g.version
+        asyncio.create_task(bot_move(room))
+
+
+async def bot_move(room: PoolRoom):
+    """Ход бота: пауза «подумать», расчёт в потоке на копии, применение под замком."""
+    try:
+        await asyncio.sleep(0.6 if os.environ.get("GAMES_TEST") else 1.4)
+        g = room.game
+        if not g or g.finished:
+            return
+        version = g.version
+        snap = copy.deepcopy(g)
+        plan = await asyncio.to_thread(billiards.bot_shot, snap, room.bot, random.Random())
+        async with plock:
+            if room.game is not g or g.version != version or g.finished:
+                return
+            uid = g.seats[g.turn]
+            # прицел бота — пусть человек видит, куда он целится
+            aim = {"t": "aim", "dx": plan["dx"], "dy": plan["dy"], "ball": plan.get("ball") or 0,
+                   "place": plan.get("place"), "power": plan["power"]}
+            for p in room.seats:
+                if p > 0:
+                    await psend(p, aim)
+        await asyncio.sleep(0.9)
+        async with plock:
+            if room.game is not g or g.version != version or g.finished:
+                return
+            try:
+                shot = g.shoot(uid, plan["dx"], plan["dy"], plan["power"], plan.get("spin", 0),
+                               plan.get("place"), plan.get("ball"))
+            except billiards.RuleError:
+                g.timeout()
+                shot = None
+            if shot:
+                for p in room.seats:
+                    if p > 0:
+                        await psend(p, {"t": "shot", "shot": shot})
+            await pafter_change(room)
+    except Exception:
+        log.exception("bot_move")
+        # бот сломался — ход переходит человеку, чтобы партия не встала
+        async with plock:
+            g = room.game
+            if g and not g.finished and g.seats[g.turn] < 0:
+                g.timeout()
+                await pafter_change(room)
+
+
+def pstart(room: PoolRoom):
+    room.game = billiards.Game(room.mode, room.seats)
+    room.result = None
+    room.ready.clear()
+    room.seen_version = -1
+    log.info("pool %s start %s %s", room.id, room.mode, room.seats)
+
+
+async def pleave(uid: int):
+    rid = puser_room.pop(uid, None)
+    room = prooms.get(rid)
+    if not room:
+        return
+    if room.game and not room.game.finished:
+        room.game.resign(uid)
+        await pafter_change(room)
+    room.seats.remove(uid)
+    room.ready.discard(uid)
+    if not [p for p in room.seats if p > 0]:
+        prooms.pop(room.id, None)
+    else:
+        if room.owner == uid:
+            room.owner = room.seats[0]
+        await ppush_room(room)
+    await psend(uid, {"t": "rooms", "rooms": plobby_list()})
+    await ppush_lobby()
+
+
+def _mode(m):
+    mode = str(m.get("mode", "pool"))
+    if mode not in billiards.MODES:
+        raise billiards.RuleError("Неизвестный вид бильярда")
+    return mode
+
+
+async def phandle(uid: int, m: dict):
+    t = m.get("t")
+    if t == "ping":
+        await psend(uid, {"t": "pong"})
+        return
+    if t == "rooms":
+        await psend(uid, {"t": "rooms", "rooms": plobby_list()})
+        return
+    if t in ("create", "bot"):
+        if uid in puser_room:
+            raise billiards.RuleError("Вы уже в комнате")
+        level = 0
+        if t == "bot":
+            level = int(m.get("level", 2))
+            if level not in BOT_NAMES:
+                raise billiards.RuleError("Уровень бота: 1, 2 или 3")
+        room = PoolRoom(uid, _mode(m), bool(m.get("private")) or bool(level), level)
+        while room.id in prooms:
+            room.id = PoolRoom(uid, room.mode, room.private).id
+        prooms[room.id] = room
+        puser_room[uid] = room.id
+        if level:
+            pstart(room)
+            await pafter_change(room)
+        else:
+            await ppush_room(room)
+            await ppush_lobby()
+        return
+    if t == "join":
+        rid = str(m.get("room", "")).upper().strip()
+        room = prooms.get(rid)
+        if not room or room.bot:
+            raise billiards.RuleError("Комната не найдена")
+        if puser_room.get(uid) == rid:
+            await ppush_room(room)
+            return
+        if uid in puser_room:
+            raise billiards.RuleError("Сначала выйдите из своей комнаты")
+        if room.status == "playing" or len(room.seats) >= 2:
+            raise billiards.RuleError("Комната заполнена")
+        room.seats.append(uid)
+        puser_room[uid] = rid
+        room.ready_since = time.time()
+        if room.status == "finished":
+            room.game, room.result = None, None
+        await ppush_room(room)
+        await ppush_lobby()
+        return
+    room = prooms.get(puser_room.get(uid, ""))
+    if not room:
+        raise billiards.RuleError("Вы не в комнате")
+    if t == "leave":
+        await pleave(uid)
+        return
+    if t == "ready":
+        if room.status == "playing":
+            raise billiards.RuleError("Партия ещё идёт")
+        if room.bot:
+            pstart(room)
+            await pafter_change(room)
+            return
+        if not room.ready:
+            room.ready_since = time.time()
+        room.ready.add(uid)
+        if len(room.seats) == 2 and room.ready >= set(room.seats):
+            pstart(room)
+            await pafter_change(room)
+            await ppush_lobby()
+        else:
+            await ppush_room(room)
+        return
+    g = room.game
+    if not g or g.finished:
+        raise billiards.RuleError("Партия не идёт")
+    if t == "aim":
+        if g.seat_of(uid) != g.turn:
+            return
+        msg = {"t": "aim", "dx": float(m.get("dx", 0)), "dy": float(m.get("dy", 0)),
+               "ball": int(m.get("ball") or 0), "power": float(m.get("power") or 0)}
+        pl = m.get("place")
+        if isinstance(pl, list) and len(pl) == 2:
+            msg["place"] = [float(pl[0]), float(pl[1])]
+        for p in room.seats:
+            if p > 0 and p != uid:
+                await psend(p, msg)
+        return
+    if t == "shot":
+        place = m.get("place")
+        if place is not None and not (isinstance(place, list) and len(place) == 2):
+            raise billiards.RuleError("Некорректное место битка")
+        shot = g.shoot(uid, m.get("dx"), m.get("dy"), m.get("power"), m.get("spin") or 0, place, m.get("ball"))
+        for p in room.seats:
+            if p > 0:
+                await psend(p, {"t": "shot", "shot": shot})
+        await pafter_change(room)
+        if g.finished:
+            await ppush_lobby()
+        return
+    raise billiards.RuleError("Неизвестная команда")
+
+
+@app.websocket("/pws")
+async def pws_endpoint(ws: WebSocket, token: str = ""):
+    u = user_by_token(token)
+    await ws.accept()
+    if not u:
+        await ws.send_text(json.dumps({"t": "error", "msg": "Нужен ник", "auth": False}, ensure_ascii=False))
+        await ws.close()
+        return
+    uid = u["id"]
+    nicks[uid] = u["nick"]
+    old = pconns.get(uid)
+    pconns[uid] = ws
+    pgone_since.pop(uid, None)
+    if old:
+        try:
+            await old.close()
+        except Exception:
+            pass
+    async with plock:
+        room = prooms.get(puser_room.get(uid, ""))
+        if room:
+            await ppush_room(room)
+        else:
+            await psend(uid, {"t": "rooms", "rooms": plobby_list()})
+    stamps: list[float] = []
+    try:
+        while True:
+            raw = await ws.receive_text()
+            now = time.monotonic()
+            stamps = [s for s in stamps if now - s < 2] + [now]
+            if len(stamps) > 30 and not os.environ.get("GAMES_TEST"):
+                continue  # флуд (прицел шлётся часто, поэтому порог выше, чем у дурака)
+            try:
+                m = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(m, dict):
+                continue
+            async with plock:
+                try:
+                    await phandle(uid, m)
+                except billiards.RuleError as e:
+                    await psend(uid, {"t": "error", "msg": str(e)})
+                except (ValueError, TypeError):
+                    await psend(uid, {"t": "error", "msg": "Некорректная команда"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if pconns.get(uid) is ws:
+            pconns.pop(uid, None)
+            pgone_since[uid] = time.time()
+            async with plock:
+                room = prooms.get(puser_room.get(uid, ""))
+                if room:
+                    await ppush_room(room)
+
+
+async def pool_ticker():
+    """Таймер удара, «Готов» и уход отключившихся — как у дурака."""
+    while True:
+        await asyncio.sleep(1)
+        try:
+            async with plock:
+                now = time.time()
+                for uid, since in list(pgone_since.items()):
+                    room = prooms.get(puser_room.get(uid, ""))
+                    if not room:
+                        pgone_since.pop(uid, None)
+                        continue
+                    grace = DISCONNECT_GRACE if room.status == "playing" else LOBBY_GRACE
+                    if room.bot:
+                        grace = 300   # с ботом можно свернуть приложение подольше
+                    if now - since > grace:
+                        pgone_since.pop(uid, None)
+                        await pleave(uid)
+                for room in list(prooms.values()):
+                    if (room.status != "playing" and not room.bot and room.ready and len(room.seats) == 2
+                            and now - room.ready_since > READY_WAIT):
+                        for p in [p for p in room.seats if p not in room.ready]:
+                            await psend(p, {"t": "error", "msg": "Вы не нажали «Готов»"})
+                            await pleave(p)
+                        continue
+                    g = room.game
+                    if g and not g.finished and g.seats[g.turn] > 0 and now > room.deadline:
+                        g.timeout()
+                        await pafter_change(room)
+                        if g.finished:
+                            await ppush_lobby()
+        except Exception:
+            log.exception("pool_ticker")
+
+
 @app.on_event("startup")
 async def _startup():
     asyncio.create_task(ticker())
+    asyncio.create_task(pool_ticker())

@@ -7,6 +7,7 @@ import '../theme.dart';
 import 'block_boom/block_boom.dart';
 import 'durak/lobby_screen.dart';
 import 'games_api.dart';
+import 'pool/pool_lobby.dart';
 
 /// Дурак: сначала ник (если ещё нет), потом лобби.
 Future<void> openDurak(BuildContext context) async {
@@ -17,6 +18,17 @@ Future<void> openDurak(BuildContext context) async {
     if (ok != true || !context.mounted) return;
   }
   Navigator.push(context, MaterialPageRoute(builder: (_) => const DurakLobbyScreen()));
+}
+
+/// Бильярд: тоже сначала ник, потом лобби.
+Future<void> openPool(BuildContext context) async {
+  await GamesApi.load();
+  if (!context.mounted) return;
+  if (!GamesApi.registered) {
+    final ok = await showDialog<bool>(context: context, builder: (_) => const NickDialog());
+    if (ok != true || !context.mounted) return;
+  }
+  Navigator.push(context, MaterialPageRoute(builder: (_) => const PoolLobbyScreen()));
 }
 
 /// Полоска на главной над нижней панелью: «Если скучно на парах».
@@ -35,9 +47,15 @@ class BoredStrip extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 11),
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Text(emoji, style: const TextStyle(fontSize: 18)),
-                  const SizedBox(width: 8),
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  Text(emoji, style: const TextStyle(fontSize: 17)),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        softWrap: false,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                  ),
                 ]),
               ),
             ),
@@ -52,8 +70,10 @@ class BoredStrip extends StatelessWidget {
         ),
         Row(children: [
           btn('🧩', 'Block Boom', () => openBlockBoom(context)),
-          const SizedBox(width: 10),
-          btn('🃏', 'Дурак онлайн', () => openDurak(context)),
+          const SizedBox(width: 8),
+          btn('🃏', 'Дурак', () => openDurak(context)),
+          const SizedBox(width: 8),
+          btn('🎱', 'Бильярд', () => openPool(context)),
         ]),
       ]),
     );
@@ -147,7 +167,7 @@ class _GroupTagDialogState extends State<GroupTagDialog> {
   }
 }
 
-/// «Ещё» → «Игры»: ник, Block Boom, дурак онлайн, таблицы лидеров.
+/// «Ещё» → «Игры»: ник, Block Boom, дурак и бильярд онлайн, таблицы лидеров.
 class GamesScreen extends StatefulWidget {
   const GamesScreen({super.key});
   @override
@@ -212,9 +232,18 @@ class _GamesScreenState extends State<GamesScreen> {
                 },
               ),
               _card(
+                icon: Icons.sports_baseball_outlined,
+                title: 'Бильярд',
+                subtitle: 'Восьмёрка и американка · с другом онлайн или с ботом',
+                onTap: () async {
+                  await openPool(context);
+                  if (mounted) setState(() {});
+                },
+              ),
+              _card(
                 icon: Icons.emoji_events_outlined,
                 title: 'Таблица лидеров',
-                subtitle: 'Рекорды Block Boom и победы в дураке',
+                subtitle: 'Рекорды Block Boom, победы в дураке и бильярде',
                 onTap: () => Navigator.push(
                     context, MaterialPageRoute(builder: (_) => const LeaderboardScreen())),
               ),
@@ -304,17 +333,20 @@ class LeaderboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Таблица лидеров'),
-          bottom: const TabBar(tabs: [Tab(text: 'Block Boom'), Tab(text: 'Дурак')]),
+          bottom: const TabBar(tabs: [Tab(text: 'Block Boom'), Tab(text: 'Дурак'), Tab(text: 'Бильярд')]),
         ),
         body: TabBarView(children: [
           _Board(load: GamesApi.bbTop, value: (r) => '${r.field('bb_best')}'),
           _Board(
               load: GamesApi.durakTop,
               value: (r) => '${r.field('durak_wins')} побед из ${r.field('durak_games')}'),
+          _Board(
+              load: GamesApi.poolTop,
+              value: (r) => '${r.field('pool_wins')} побед из ${r.field('pool_games')}'),
         ]),
       ),
     );

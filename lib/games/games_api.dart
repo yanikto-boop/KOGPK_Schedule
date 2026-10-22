@@ -7,10 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'sealed_store.dart';
 
 /// Игровой сервер (games_server на том же хосте, наружу — /gapi/):
-/// ники, таблицы лидеров, дурак онлайн. Ник один на приложение и сайт.
+/// ники, таблицы лидеров, дурак и бильярд онлайн. Ник один на приложение и сайт.
 class GamesApi {
   static const base = 'https://vpn-ornux.space/gapi';
   static const wsBase = 'wss://vpn-ornux.space/gapi/ws';
+  static const poolWs = 'wss://vpn-ornux.space/gapi/pws';
   static const _kToken = 'g_token', _kNick = 'g_nick', _kId = 'g_id', _kGroup = 'g_group';
 
   static String? token;
@@ -123,6 +124,8 @@ class GamesApi {
   static Future<Leaderboard> bbTop() => _board('/bb/top?limit=100', 'lb_bb');
 
   static Future<Leaderboard> durakTop() => _board('/durak/top?limit=100', 'lb_durak');
+
+  static Future<Leaderboard> poolTop() => _board('/pool/top?limit=100', 'lb_pool');
 
   static Future<Leaderboard> _board(String path, String key) async {
     final p = await SharedPreferences.getInstance();
