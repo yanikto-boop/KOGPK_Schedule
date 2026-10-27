@@ -11,7 +11,8 @@ API расписания отношения не имеет. Комнаты и �
            | take | pass | ping
   сервер → rooms{rooms} | room{room,game,deadline,result} | error{msg} | pong
 
-Бильярд — отдельный WebSocket /pws?token=… (см. раздел «бильярд» ниже).
+Бильярд — отдельный WebSocket /pws?token=… (см. раздел «бильярд» ниже),
+нарды — /nws?token=… (раздел «нарды»).
 """
 import asyncio
 import copy
@@ -32,6 +33,7 @@ from pydantic import BaseModel
 
 import billiards
 import durak
+import nardy
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.environ.get("GAMES_DB", os.path.join(BASE, "games.db"))
@@ -77,7 +79,7 @@ def init_db():
             except sqlite3.OperationalError:
                 pass
         # бильярд онлайн (с ботом не считается)
-        for col in ("pool_games", "pool_wins"):
+        for col in ("pool_games", "pool_wins", "nardy_games", "nardy_wins"):
             try:
                 con.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
             except sqlite3.OperationalError:
@@ -303,6 +305,7 @@ def _me(u):
     return {"id": u["id"], "nick": u["nick"], "bb_best": u["bb_best"],
             "durak_games": u["durak_games"], "durak_wins": u["durak_wins"],
             "durak_losses": u["durak_losses"], "pool_games": u["pool_games"], "pool_wins": u["pool_wins"],
+            "nardy_games": u["nardy_games"], "nardy_wins": u["nardy_wins"],
             "tag": u["tag"], "tag_color": u["tag_color"], "group": u["group_tag"]}
 
 
@@ -349,6 +352,9 @@ def order_key(order: str, r) -> str:
     # «кто выше меня» для строки r при заданной сортировке
     if order.startswith("bb_best"):
         return f"bb_best > {int(r['bb_best'])} OR (bb_best = {int(r['bb_best'])} AND id < {int(r['id'])})"
+    if order.startswith("nardy_wins"):
+        return (f"nardy_wins > {int(r['nardy_wins'])} OR (nardy_wins = {int(r['nardy_wins'])} AND "
+                f"(nardy_games < {int(r['nardy_games'])} OR (nardy_games = {int(r['nardy_games'])} AND id < {int(r['id'])})))")
     if order.startswith("pool_wins"):
         return (f"pool_wins > {int(r['pool_wins'])} OR (pool_wins = {int(r['pool_wins'])} AND "
                 f"(pool_games < {int(r['pool_games'])} OR (pool_games = {int(r['pool_games'])} AND id < {int(r['id'])})))")
@@ -385,10 +391,21 @@ def pool_top(limit: int = 50, authorization: str | None = Header(None)):
     return {"top": top, "me": mine}
 
 
+@app.get("/nardy/top")
+def nardy_top(limit: int = 50, authorization: str | None = Header(None)):
+    u = user_by_token((authorization or "").removeprefix("Bearer ").strip())
+    top, mine = _top("nardy_wins, nardy_games", "nardy_wins DESC, nardy_games ASC, id ASC",
+                     limit, u["id"] if u else None, "nardy_games > 0")
+    if mine and not u["nardy_games"]:
+        mine = None
+    return {"top": top, "me": mine}
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "rooms": len(rooms), "online": len(conns),
-            "pool_rooms": len(prooms), "pool_online": len(pconns)}
+            "pool_rooms": len(prooms), "pool_online": len(pconns),
+            "nardy_rooms": len(nrooms), "nardy_online": len(nconns)}
 
 
 # ─── комнаты ─────────────────────────────────────────────────────────────────
@@ -1092,7 +1109,360 @@ async def pool_ticker():
             log.exception("pool_ticker")
 
 
+# ─── нарды ───────────────────────────────────────────────────────────────────
+# WebSocket /nws?token=… — длинные нарды 1×1 или с ботом, JSON {"t": тип, ...}:
+#   клиент → rooms | create{private} | bot{level} | join{room} | leave | ready
+#            | move{from,to} | undo | ping
+#   сервер → rooms{rooms} | room{room,game,deadline,result} | error{msg} | pong
+# Ход — одна шашка на одну кость; кости бросает сервер. Доска в «game» — в
+# координатах того, кому она отправлена (0 — его голова, 24 — выброшенные).
+NARDY_STEP_SECONDS = 40
+
+
+class NardyRoom:
+    def __init__(self, owner: int, private: bool, bot_level: int = 0):
+        self.id = "".join(random.choices(string.ascii_uppercase.replace("O", "").replace("I", "") + "23456789", k=5))
+        self.owner = owner
+        self.private = private
+        self.bot = bot_level            # 0 — живой соперник
+        self.seats: list[int] = [owner] + ([-bot_level] if bot_level else [])
+        self.ready: set[int] = set()
+        self.game: nardy.Game | None = None
+        self.result = None
+        self.deadline = 0.0
+        self.ready_since = 0.0
+        self.seen_version = -1
+        self.created = time.time()
+        self.bot_for = -1               # версия партии, на которую бот уже ходит
+
+    @property
+    def status(self):
+        if self.game and not self.game.finished:
+            return "playing"
+        return "finished" if self.result else "waiting"
+
+    def summary(self):
+        return {"id": self.id, "owner": pnick(self.owner),
+                "players": [pnick(p) for p in self.seats], "status": self.status,
+                "private": self.private, "bot": self.bot}
+
+
+nrooms: dict[str, NardyRoom] = {}
+nuser_room: dict[int, str] = {}
+nconns: dict[int, WebSocket] = {}
+ngone_since: dict[int, float] = {}
+nlock = asyncio.Lock()
+
+
+async def nsend(uid: int, msg: dict):
+    ws = nconns.get(uid)
+    if not ws:
+        return
+    try:
+        await ws.send_text(json.dumps(msg, ensure_ascii=False, separators=(",", ":")))
+    except Exception:
+        pass
+
+
+def nlobby_list():
+    order = {"waiting": 0, "playing": 1, "finished": 2}
+    rs = sorted((r for r in nrooms.values() if not r.private and not r.bot),
+                key=lambda r: (order[r.status], -r.created))
+    return [r.summary() for r in rs][:100]
+
+
+async def npush_lobby():
+    msg = {"t": "rooms", "rooms": nlobby_list()}
+    for uid in list(nconns):
+        if uid not in nuser_room:
+            await nsend(uid, msg)
+
+
+async def npush_room(room: NardyRoom):
+    left = max(0, int(room.deadline - time.time())) if room.status == "playing" else None
+    if room.game and room.game.seats[room.game.turn] < 0:
+        left = None   # бот ходит без таймера
+    info = {**room.summary(), "seats": [{"id": p, "nick": pnick(p), "online": p < 0 or p in nconns,
+                                          "ready": p < 0 or p in room.ready} for p in room.seats],
+            "owner_id": room.owner}
+    for uid in room.seats:
+        if uid > 0:
+            await nsend(uid, {"t": "room", "room": info, "me": uid,
+                              "game": room.game.view(uid) if room.game else None,
+                              "deadline": left, "result": room.result})
+
+
+def nfinish(room: NardyRoom):
+    g = room.game
+    win = g.seats[g.winner] if g.winner is not None else None
+    if not room.bot:
+        with db() as con:
+            for p in g.seats:
+                con.execute("UPDATE users SET nardy_games=nardy_games+1, nardy_wins=nardy_wins+? WHERE id=?",
+                            (1 if p == win else 0, p))
+    room.result = {"winner": win, "winner_nick": pnick(win) if win is not None else None,
+                   "note": g.note, "mars": g.mars}
+    room.ready.clear()
+    log.info("nardy %s finished, winner=%s mars=%s", room.id, win, g.mars)
+
+
+async def nafter_change(room: NardyRoom):
+    g = room.game
+    if g and g.version != room.seen_version:
+        room.seen_version = g.version
+        room.deadline = time.time() + NARDY_STEP_SECONDS
+        if g.finished and room.result is None:
+            nfinish(room)
+    await npush_room(room)
+    if g and not g.finished and g.seats[g.turn] < 0 and room.bot_for != g.version:
+        room.bot_for = g.version
+        asyncio.create_task(nbot_move(room))
+
+
+async def nbot_move(room: NardyRoom):
+    """Ход бота: пауза, расчёт на копии в потоке, потом шашки по одной — чтобы было видно."""
+    fast = bool(os.environ.get("GAMES_TEST"))
+    try:
+        await asyncio.sleep(0.3 if fast else 1.1)
+        g = room.game
+        if not g or g.finished:
+            return
+        version = g.version
+        snap = copy.deepcopy(g)
+        plan = await asyncio.to_thread(nardy.bot_plan, snap, room.bot, random.Random())
+        for k, (frm, d) in enumerate(plan):
+            if k:
+                await asyncio.sleep(0.15 if fast else 0.65)
+            async with nlock:
+                if room.game is not g or g.version != version or g.finished:
+                    return
+                g.step(g.seats[g.turn], frm, d)
+                version = g.version
+                if k < len(plan) - 1:
+                    room.bot_for = version   # ход ещё не доигран — вторую задачу не запускать
+                await nafter_change(room)
+    except Exception:
+        log.exception("nbot_move")
+        # бот сломался — доиграть его ход «по таймеру», чтобы партия не встала
+        async with nlock:
+            g = room.game
+            if g and not g.finished and g.seats[g.turn] < 0:
+                g.timeout()
+                await nafter_change(room)
+
+
+def nstart(room: NardyRoom):
+    # белые (первое место) — по очереди: в следующей партии цвета меняются
+    seats = list(room.seats)
+    if room.game is not None:
+        seats = list(reversed(room.game.seats)) if set(room.game.seats) == set(seats) else seats
+    room.game = nardy.Game(seats)
+    room.result = None
+    room.ready.clear()
+    room.seen_version = -1
+    room.bot_for = -1
+    log.info("nardy %s start %s", room.id, seats)
+
+
+async def nleave(uid: int):
+    rid = nuser_room.pop(uid, None)
+    room = nrooms.get(rid)
+    if not room:
+        return
+    if room.game and not room.game.finished:
+        room.game.resign(uid)
+        await nafter_change(room)
+    room.seats.remove(uid)
+    room.ready.discard(uid)
+    if not [p for p in room.seats if p > 0]:
+        nrooms.pop(room.id, None)
+    else:
+        if room.owner == uid:
+            room.owner = room.seats[0]
+        await npush_room(room)
+    await nsend(uid, {"t": "rooms", "rooms": nlobby_list()})
+    await npush_lobby()
+
+
+async def nhandle(uid: int, m: dict):
+    t = m.get("t")
+    if t == "ping":
+        await nsend(uid, {"t": "pong"})
+        return
+    if t == "rooms":
+        await nsend(uid, {"t": "rooms", "rooms": nlobby_list()})
+        return
+    if t in ("create", "bot"):
+        if uid in nuser_room:
+            raise nardy.RuleError("Вы уже в комнате")
+        level = 0
+        if t == "bot":
+            level = int(m.get("level", 2))
+            if level not in BOT_NAMES:
+                raise nardy.RuleError("Уровень бота: 1, 2 или 3")
+        room = NardyRoom(uid, bool(m.get("private")) or bool(level), level)
+        while room.id in nrooms or room.id in prooms:
+            room.id = NardyRoom(uid, room.private).id
+        nrooms[room.id] = room
+        nuser_room[uid] = room.id
+        if level:
+            nstart(room)
+            await nafter_change(room)
+        else:
+            await npush_room(room)
+            await npush_lobby()
+        return
+    if t == "join":
+        rid = str(m.get("room", "")).upper().strip()
+        room = nrooms.get(rid)
+        if not room or room.bot:
+            raise nardy.RuleError("Комната не найдена")
+        if nuser_room.get(uid) == rid:
+            await npush_room(room)
+            return
+        if uid in nuser_room:
+            raise nardy.RuleError("Сначала выйдите из своей комнаты")
+        if room.status == "playing" or len(room.seats) >= 2:
+            raise nardy.RuleError("Комната заполнена")
+        room.seats.append(uid)
+        nuser_room[uid] = rid
+        room.ready_since = time.time()
+        if room.status == "finished":
+            room.game, room.result = None, None
+        await npush_room(room)
+        await npush_lobby()
+        return
+    room = nrooms.get(nuser_room.get(uid, ""))
+    if not room:
+        raise nardy.RuleError("Вы не в комнате")
+    if t == "leave":
+        await nleave(uid)
+        return
+    if t == "ready":
+        if room.status == "playing":
+            raise nardy.RuleError("Партия ещё идёт")
+        if room.bot:
+            nstart(room)
+            await nafter_change(room)
+            return
+        if not room.ready:
+            room.ready_since = time.time()
+        room.ready.add(uid)
+        if len(room.seats) == 2 and room.ready >= set(room.seats):
+            nstart(room)
+            await nafter_change(room)
+            await npush_lobby()
+        else:
+            await npush_room(room)
+        return
+    g = room.game
+    if not g or g.finished:
+        raise nardy.RuleError("Партия не идёт")
+    if t == "move":
+        g.move(uid, m.get("from"), m.get("to"))
+    elif t == "undo":
+        g.undo(uid)
+    else:
+        raise nardy.RuleError("Неизвестная команда")
+    await nafter_change(room)
+    if g.finished:
+        await npush_lobby()
+
+
+@app.websocket("/nws")
+async def nws_endpoint(ws: WebSocket, token: str = ""):
+    u = user_by_token(token)
+    await ws.accept()
+    if not u:
+        await ws.send_text(json.dumps({"t": "error", "msg": "Нужен ник", "auth": False}, ensure_ascii=False))
+        await ws.close()
+        return
+    uid = u["id"]
+    nicks[uid] = u["nick"]
+    old = nconns.get(uid)
+    nconns[uid] = ws
+    ngone_since.pop(uid, None)
+    if old:
+        try:
+            await old.close()
+        except Exception:
+            pass
+    async with nlock:
+        room = nrooms.get(nuser_room.get(uid, ""))
+        if room:
+            await npush_room(room)
+        else:
+            await nsend(uid, {"t": "rooms", "rooms": nlobby_list()})
+    stamps: list[float] = []
+    try:
+        while True:
+            raw = await ws.receive_text()
+            now = time.monotonic()
+            stamps = [s for s in stamps if now - s < 2] + [now]
+            if len(stamps) > 20 and not os.environ.get("GAMES_TEST"):
+                continue  # флуд
+            try:
+                m = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(m, dict):
+                continue
+            async with nlock:
+                try:
+                    await nhandle(uid, m)
+                except nardy.RuleError as e:
+                    await nsend(uid, {"t": "error", "msg": str(e)})
+                except (ValueError, TypeError):
+                    await nsend(uid, {"t": "error", "msg": "Некорректная команда"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if nconns.get(uid) is ws:
+            nconns.pop(uid, None)
+            ngone_since[uid] = time.time()
+            async with nlock:
+                room = nrooms.get(nuser_room.get(uid, ""))
+                if room:
+                    await npush_room(room)
+
+
+async def nardy_ticker():
+    """Таймер хода, «Готов» и уход отключившихся — как у бильярда."""
+    while True:
+        await asyncio.sleep(1)
+        try:
+            async with nlock:
+                now = time.time()
+                for uid, since in list(ngone_since.items()):
+                    room = nrooms.get(nuser_room.get(uid, ""))
+                    if not room:
+                        ngone_since.pop(uid, None)
+                        continue
+                    grace = DISCONNECT_GRACE if room.status == "playing" else LOBBY_GRACE
+                    if room.bot:
+                        grace = 300   # с ботом можно свернуть приложение подольше
+                    if now - since > grace:
+                        ngone_since.pop(uid, None)
+                        await nleave(uid)
+                for room in list(nrooms.values()):
+                    if (room.status != "playing" and not room.bot and room.ready and len(room.seats) == 2
+                            and now - room.ready_since > READY_WAIT):
+                        for p in [p for p in room.seats if p not in room.ready]:
+                            await nsend(p, {"t": "error", "msg": "Вы не нажали «Готов»"})
+                            await nleave(p)
+                        continue
+                    g = room.game
+                    if g and not g.finished and g.seats[g.turn] > 0 and now > room.deadline:
+                        g.timeout()
+                        await nafter_change(room)
+                        if g.finished:
+                            await npush_lobby()
+        except Exception:
+            log.exception("nardy_ticker")
+
+
 @app.on_event("startup")
 async def _startup():
     asyncio.create_task(ticker())
     asyncio.create_task(pool_ticker())
+    asyncio.create_task(nardy_ticker())

@@ -7,6 +7,7 @@ import '../theme.dart';
 import 'block_boom/block_boom.dart';
 import 'durak/lobby_screen.dart';
 import 'games_api.dart';
+import 'nardy/nardy_lobby.dart';
 import 'pool/pool_lobby.dart';
 
 /// Дурак: сначала ник (если ещё нет), потом лобби.
@@ -29,6 +30,17 @@ Future<void> openPool(BuildContext context) async {
     if (ok != true || !context.mounted) return;
   }
   Navigator.push(context, MaterialPageRoute(builder: (_) => const PoolLobbyScreen()));
+}
+
+/// Нарды: тоже сначала ник, потом лобби.
+Future<void> openNardy(BuildContext context) async {
+  await GamesApi.load();
+  if (!context.mounted) return;
+  if (!GamesApi.registered) {
+    final ok = await showDialog<bool>(context: context, builder: (_) => const NickDialog());
+    if (ok != true || !context.mounted) return;
+  }
+  Navigator.push(context, MaterialPageRoute(builder: (_) => const NardyLobbyScreen()));
 }
 
 /// Полоска на главной над нижней панелью: «Если скучно на парах».
@@ -72,8 +84,12 @@ class BoredStrip extends StatelessWidget {
           btn('🧩', 'Block Boom', () => openBlockBoom(context)),
           const SizedBox(width: 8),
           btn('🃏', 'Дурак', () => openDurak(context)),
-          const SizedBox(width: 8),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
           btn('🎱', 'Бильярд', () => openPool(context)),
+          const SizedBox(width: 8),
+          btn('🎲', 'Нарды', () => openNardy(context)),
         ]),
       ]),
     );
@@ -241,9 +257,18 @@ class _GamesScreenState extends State<GamesScreen> {
                 },
               ),
               _card(
+                icon: Icons.casino_outlined,
+                title: 'Нарды',
+                subtitle: 'Длинные нарды · с другом онлайн или с ботом',
+                onTap: () async {
+                  await openNardy(context);
+                  if (mounted) setState(() {});
+                },
+              ),
+              _card(
                 icon: Icons.emoji_events_outlined,
                 title: 'Таблица лидеров',
-                subtitle: 'Рекорды Block Boom, победы в дураке и бильярде',
+                subtitle: 'Рекорды Block Boom, победы в дураке, бильярде и нардах',
                 onTap: () => Navigator.push(
                     context, MaterialPageRoute(builder: (_) => const LeaderboardScreen())),
               ),
@@ -333,11 +358,12 @@ class LeaderboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Таблица лидеров'),
-          bottom: const TabBar(tabs: [Tab(text: 'Block Boom'), Tab(text: 'Дурак'), Tab(text: 'Бильярд')]),
+          bottom: const TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [
+            Tab(text: 'Block Boom'), Tab(text: 'Дурак'), Tab(text: 'Бильярд'), Tab(text: 'Нарды')]),
         ),
         body: TabBarView(children: [
           _Board(load: GamesApi.bbTop, value: (r) => '${r.field('bb_best')}'),
@@ -347,6 +373,9 @@ class LeaderboardScreen extends StatelessWidget {
           _Board(
               load: GamesApi.poolTop,
               value: (r) => '${r.field('pool_wins')} побед из ${r.field('pool_games')}'),
+          _Board(
+              load: GamesApi.nardyTop,
+              value: (r) => '${r.field('nardy_wins')} побед из ${r.field('nardy_games')}'),
         ]),
       ),
     );
