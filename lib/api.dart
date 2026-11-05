@@ -10,7 +10,7 @@ import 'services/client_info.dart';
 
 /// Клиент к Schedule API (бэкенд на германском сервере).
 class Api {
-  static const base = 'https://vpn-ornux.space/sapi';
+  static const base = 'https://kpk-rsp.space/sapi';
   static http.Client _c = TaggedClient();
   @visibleForTesting
   static set client(http.Client c) => _c = c;

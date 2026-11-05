@@ -9,10 +9,10 @@ import 'sealed_store.dart';
 /// Игровой сервер (games_server на том же хосте, наружу — /gapi/):
 /// ники, таблицы лидеров, дурак, бильярд и нарды онлайн. Ник один на приложение и сайт.
 class GamesApi {
-  static const base = 'https://vpn-ornux.space/gapi';
-  static const wsBase = 'wss://vpn-ornux.space/gapi/ws';
-  static const poolWs = 'wss://vpn-ornux.space/gapi/pws';
-  static const nardyWs = 'wss://vpn-ornux.space/gapi/nws';
+  static const base = 'https://kpk-rsp.space/gapi';
+  static const wsBase = 'wss://kpk-rsp.space/gapi/ws';
+  static const poolWs = 'wss://kpk-rsp.space/gapi/pws';
+  static const nardyWs = 'wss://kpk-rsp.space/gapi/nws';
   static const _kToken = 'g_token', _kNick = 'g_nick', _kId = 'g_id', _kGroup = 'g_group';
 
   static String? token;
