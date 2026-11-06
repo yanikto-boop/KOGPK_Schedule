@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,9 +11,12 @@ import 'services/client_info.dart';
 
 /// Клиент к Schedule API (бэкенд на германском сервере).
 class Api {
-  static const base = 'https://api.ndhbh-relay.space/sapi';
-  // запасной адрес: если основной недоступен (блокировки), пробуем его
-  static const baseAlt = 'https://kpk-rsp.space/sapi';
+  // основной адрес — напрямую, без CDN (операторы душат наш домен за Cloudflare)
+  static const base = 'https://kpk-rsp.space/sapi';
+  // запасной: если основной недоступен (блокировки), его запрос стартует сам через 2,5 с
+  static const baseAlt = 'https://api.ndhbh-relay.space/sapi';
+  // адрес, который отвечал последним — со следующего запроса пробуем его первым
+  static String _pref = base;
   static http.Client _c = TaggedClient();
   @visibleForTesting
   static set client(http.Client c) => _c = c;
@@ -208,19 +212,52 @@ class Api {
     return File('${dir.path}/${sha1.convert(utf8.encode(path))}.json');
   }
 
+  /// GET с «подстраховкой»: второй адрес стартует через 2,5 с (или сразу, если первый упал),
+  /// берём ответ того, кто успел раньше. 5xx считается неудачей адреса.
+  static Future<http.Response> _getHedged(String path) {
+    final first = _pref;
+    final second = first == base ? baseAlt : base;
+    final done = Completer<http.Response>();
+    var failed = 0;
+    var secondStarted = false;
+    void fail(Object e, StackTrace st) {
+      failed++;
+      if (!secondStarted) {
+        secondStarted = true;
+        run(second);
+      }
+      if (failed >= 2 && !done.isCompleted) done.completeError(e, st);
+    }
+
+    void run(String b) {
+      _c
+          .get(Uri.parse('$b$path'))
+          .timeout(const Duration(seconds: 12))
+          .then((r) {
+        if (r.statusCode >= 500) {
+          fail(ApiException('HTTP ${r.statusCode}'), StackTrace.current);
+        } else if (!done.isCompleted) {
+          _pref = b;
+          done.complete(r);
+        }
+      }).catchError((Object e, StackTrace st) => fail(e, st));
+    }
+
+    run(first);
+    Timer(const Duration(milliseconds: 2500), () {
+      if (!secondStarted && !done.isCompleted) {
+        secondStarted = true;
+        run(second);
+      }
+    });
+    return done.future;
+  }
+
   static Future<Map<String, dynamic>> _get(String path) async {
     final cache = _isCacheable(path);
     http.Response resp;
     try {
-      try {
-        resp = await _c
-            .get(Uri.parse('$base$path'))
-            .timeout(const Duration(seconds: 8));
-      } catch (_) {
-        resp = await _c
-            .get(Uri.parse('$baseAlt$path'))
-            .timeout(const Duration(seconds: 12));
-      }
+      resp = await _getHedged(path);
     } catch (e) {
       // нет сети / таймаут — отдаём сохранённое, если есть
       if (cache) {
