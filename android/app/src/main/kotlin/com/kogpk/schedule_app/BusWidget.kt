@@ -72,7 +72,7 @@ class BusWidget : HomeWidgetProvider() {
     ) {
         Thread {
             val items = try {
-                val url = URL("https://kpk-rsp.space/sapi/bus/forecast?sid=$sid")
+                val url = URL("https://api.ndhbh-relay.space/sapi/bus/forecast?sid=$sid")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000; readTimeout = 8000
                     setRequestProperty("User-Agent", "KOGPKScheduleWidget")

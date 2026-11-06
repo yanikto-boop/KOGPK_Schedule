@@ -10,7 +10,9 @@ import 'services/client_info.dart';
 
 /// Клиент к Schedule API (бэкенд на германском сервере).
 class Api {
-  static const base = 'https://kpk-rsp.space/sapi';
+  static const base = 'https://api.ndhbh-relay.space/sapi';
+  // запасной адрес: если основной недоступен (блокировки), пробуем его
+  static const baseAlt = 'https://kpk-rsp.space/sapi';
   static http.Client _c = TaggedClient();
   @visibleForTesting
   static set client(http.Client c) => _c = c;
@@ -210,9 +212,15 @@ class Api {
     final cache = _isCacheable(path);
     http.Response resp;
     try {
-      resp = await _c
-          .get(Uri.parse('$base$path'))
-          .timeout(const Duration(seconds: 15));
+      try {
+        resp = await _c
+            .get(Uri.parse('$base$path'))
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        resp = await _c
+            .get(Uri.parse('$baseAlt$path'))
+            .timeout(const Duration(seconds: 12));
+      }
     } catch (e) {
       // нет сети / таймаут — отдаём сохранённое, если есть
       if (cache) {
