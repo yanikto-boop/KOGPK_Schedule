@@ -220,6 +220,7 @@ class Api {
     final done = Completer<http.Response>();
     var failed = 0;
     var secondStarted = false;
+    late final void Function(String) run;
     void fail(Object e, StackTrace st) {
       failed++;
       if (!secondStarted) {
@@ -229,7 +230,7 @@ class Api {
       if (failed >= 2 && !done.isCompleted) done.completeError(e, st);
     }
 
-    void run(String b) {
+    run = (String b) {
       _c
           .get(Uri.parse('$b$path'))
           .timeout(const Duration(seconds: 12))
@@ -241,7 +242,7 @@ class Api {
           done.complete(r);
         }
       }).catchError((Object e, StackTrace st) => fail(e, st));
-    }
+    };
 
     run(first);
     Timer(const Duration(milliseconds: 2500), () {
