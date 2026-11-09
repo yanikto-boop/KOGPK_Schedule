@@ -84,6 +84,12 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
   /// Реалистичный режим задаётся при создании комнаты и един для обоих игроков.
   bool get _realistic => c.room?['realistic'] == true;
 
+  // анимация удара
+  Map<String, dynamic>? _shot;
+  double _f = 0;
+  int _ev = 0;
+  Duration? _t0;
+
   @override
   void initState() {
     super.initState();
