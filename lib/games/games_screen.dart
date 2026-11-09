@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../theme.dart';
 import 'block_boom/block_boom.dart';
+import 'cards/casino_lobby.dart';
 import 'durak/lobby_screen.dart';
 import 'games_api.dart';
 import 'nardy/nardy_lobby.dart';
@@ -20,6 +21,72 @@ Future<void> openDurak(BuildContext context) async {
   }
   Navigator.push(context, MaterialPageRoute(builder: (_) => const DurakLobbyScreen()));
 }
+
+Future<void> _openCasino(BuildContext context, String kind) async {
+  await GamesApi.load();
+  if (!context.mounted) return;
+  if (!GamesApi.registered) {
+    final ok = await showDialog<bool>(context: context, builder: (_) => const NickDialog());
+    if (ok != true || !context.mounted) return;
+  }
+  Navigator.push(context, MaterialPageRoute(builder: (_) => CasinoLobbyScreen(kind: kind)));
+}
+
+/// Раздел «Карточные игры»: дурак, покер, блэкджек.
+class CardGamesScreen extends StatelessWidget {
+  const CardGamesScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Карточные игры')),
+      body: ListView(padding: const EdgeInsets.all(12), children: [
+        _gameCard(
+          icon: Icons.style_outlined,
+          title: 'Дурак онлайн',
+          subtitle: 'До 6 игроков · подкидной и переводной · 24/36/52 карты',
+          onTap: () => openDurak(context),
+        ),
+        _gameCard(
+          icon: Icons.filter_none_rounded,
+          title: 'Покер',
+          subtitle: 'Техасский холдем · 2–6 игроков и боты · игровые фишки',
+          onTap: () => _openCasino(context, 'poker'),
+        ),
+        _gameCard(
+          icon: Icons.looks_one_outlined,
+          title: 'Блэкджек',
+          subtitle: 'Соло против дилера или стол до 5 игроков · игровые фишки',
+          onTap: () => _openCasino(context, 'bj'),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 8, 4, 0),
+          child: Text(
+              'Фишки в покере и блэкджеке — игровые, настоящих денег нет. Если фишки закончились, раз в день '
+              'дарим 1000. Таблица лидеров по фишкам — в разделе «Таблица лидеров».',
+              style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+        ),
+      ]),
+    );
+  }
+}
+
+Widget _gameCard({required IconData icon, required String title, required String subtitle, VoidCallback? onTap}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: ListTile(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.border)),
+          leading: Icon(icon, color: AppColors.primary),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(subtitle, style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
+          trailing: const Icon(Icons.chevron_right, color: AppColors.textDim),
+          onTap: onTap,
+        ),
+      ),
+    );
 
 /// Бильярд: тоже сначала ник, потом лобби.
 Future<void> openPool(BuildContext context) async {
@@ -240,10 +307,10 @@ class _GamesScreenState extends State<GamesScreen> {
               ),
               _card(
                 icon: Icons.style_outlined,
-                title: 'Дурак онлайн',
-                subtitle: 'До 6 игроков · подкидной и переводной · 24/36/52 карты',
+                title: 'Карточные игры',
+                subtitle: 'Дурак, покер, блэкджек',
                 onTap: () async {
-                  await openDurak(context);
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const CardGamesScreen()));
                   if (mounted) setState(() {});
                 },
               ),
@@ -268,7 +335,7 @@ class _GamesScreenState extends State<GamesScreen> {
               _card(
                 icon: Icons.emoji_events_outlined,
                 title: 'Таблица лидеров',
-                subtitle: 'Рекорды Block Boom, победы в дураке, бильярде и нардах',
+                subtitle: 'Рекорды Block Boom, победы в играх, фишки казино',
                 onTap: () => Navigator.push(
                     context, MaterialPageRoute(builder: (_) => const LeaderboardScreen())),
               ),
@@ -358,12 +425,12 @@ class LeaderboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Таблица лидеров'),
           bottom: const TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [
-            Tab(text: 'Block Boom'), Tab(text: 'Дурак'), Tab(text: 'Бильярд'), Tab(text: 'Нарды')]),
+            Tab(text: 'Block Boom'), Tab(text: 'Дурак'), Tab(text: 'Бильярд'), Tab(text: 'Нарды'), Tab(text: 'Фишки')]),
         ),
         body: TabBarView(children: [
           _Board(load: GamesApi.bbTop, value: (r) => '${r.field('bb_best')}'),
@@ -376,6 +443,7 @@ class LeaderboardScreen extends StatelessWidget {
           _Board(
               load: GamesApi.nardyTop,
               value: (r) => '${r.field('nardy_wins')} побед из ${r.field('nardy_games')}'),
+          _Board(load: GamesApi.chipsTop, value: (r) => '🪙 ${r.field('chips')}'),
         ]),
       ),
     );

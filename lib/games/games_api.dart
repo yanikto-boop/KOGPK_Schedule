@@ -13,6 +13,7 @@ class GamesApi {
   static const wsBase = 'wss://kpk-rsp.space/gapi/ws';
   static const poolWs = 'wss://kpk-rsp.space/gapi/pws';
   static const nardyWs = 'wss://kpk-rsp.space/gapi/nws';
+  static const casinoWs = 'wss://kpk-rsp.space/gapi/cws';
   static const _kToken = 'g_token', _kNick = 'g_nick', _kId = 'g_id', _kGroup = 'g_group';
 
   static String? token;
@@ -128,6 +129,7 @@ class GamesApi {
 
   static Future<Leaderboard> poolTop() => _board('/pool/top?limit=100', 'lb_pool');
   static Future<Leaderboard> nardyTop() => _board('/nardy/top?limit=100', 'lb_nardy');
+  static Future<Leaderboard> chipsTop() => _board('/chips/top?limit=100', 'lb_chips');
 
   static Future<Leaderboard> _board(String path, String key) async {
     final p = await SharedPreferences.getInstance();
