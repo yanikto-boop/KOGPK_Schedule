@@ -161,6 +161,7 @@ class _CreateSheetState extends State<_CreateSheet> {
   String mode = 'pool';
   int level = 2;
   bool private = false;
+  bool realistic = false;
 
   @override
   void initState() {
@@ -218,12 +219,20 @@ class _CreateSheetState extends State<_CreateSheet> {
                 value: private,
                 onChanged: (v) => setState(() => private = v),
               ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Реалистичный режим'),
+              subtitle: const Text('Без траектории и подсказок — у обоих игроков',
+                  style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+              value: realistic,
+              onChanged: (v) => setState(() => realistic = v),
+            ),
             const SizedBox(height: 10),
             FilledButton(
               onPressed: () {
                 SharedPreferences.getInstance().then((p) => p.setString('pool_mode', mode));
                 final c = PoolClient.instance;
-                widget.bot ? c.withBot(mode, level) : c.create(mode, private: private);
+                widget.bot ? c.withBot(mode, level, realistic: realistic) : c.create(mode, private: private, realistic: realistic);
                 Navigator.pop(context);
               },
               child: Padding(padding: const EdgeInsets.all(12), child: Text(widget.bot ? 'Начать' : 'Создать')),

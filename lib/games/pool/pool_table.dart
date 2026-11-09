@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../theme.dart';
 import 'pool_client.dart';
@@ -82,32 +81,8 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
   DateTime _noteAt = DateTime(2000);
   _Geo? _geo;
 
-  /// Реалистичный режим: без траектории и без подсказок «свой/чужой шар».
-  static bool _realistic = false;
-  static bool _realLoaded = false;
-
-  Future<void> _loadReal() async {
-    if (_realLoaded) return;
-    _realLoaded = true;
-    try {
-      final p = await SharedPreferences.getInstance();
-      _realistic = p.getBool('pool_realistic') ?? false;
-      if (mounted) setState(() {});
-    } catch (_) {}
-  }
-
-  Future<void> _toggleReal() async {
-    setState(() => _realistic = !_realistic);
-    try {
-      (await SharedPreferences.getInstance()).setBool('pool_realistic', _realistic);
-    } catch (_) {}
-  }
-
-  // анимация удара
-  Map<String, dynamic>? _shot;
-  double _f = 0;
-  int _ev = 0;
-  Duration? _t0;
+  /// Реалистичный режим задаётся при создании комнаты и един для обоих игроков.
+  bool get _realistic => c.room?['realistic'] == true;
 
   @override
   void initState() {
@@ -125,7 +100,6 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
       if (mounted) setState(() {});
     });
     _absorb();
-    _loadReal();
   }
 
   @override
@@ -475,11 +449,6 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
               Expanded(child: _chip(0)),
               const SizedBox(width: 6),
               Expanded(child: _chip(1)),
-              IconButton(
-                tooltip: 'Реалистичный режим',
-                icon: Icon(_realistic ? Icons.visibility_off : Icons.visibility, color: _realistic ? _gold : Colors.white70),
-                onPressed: _toggleReal,
-              ),
             ]),
           ),
         ),

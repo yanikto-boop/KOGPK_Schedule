@@ -45,6 +45,8 @@ class UpdateService {
           }
         }
       }
+      // GitHub у части пользователей не открывается — сначала наше зеркало
+      if (url != releasesPage) url = 'https://kpk-rsp.space/gapi/apk/KOGPK_Schedule_$latest.apk';
       return AppUpdate(
         version: latest,
         notes: (data['body'] ?? '').toString(),
@@ -59,6 +61,14 @@ class UpdateService {
   /// Уже скачанный целиком файл этой версии не качается заново.
   /// Возвращает путь к файлу или null при ошибке.
   static Future<String?> downloadApk(
+      String url, String version, void Function(double) onProgress) async {
+    final r = await _downloadOne(url, version, onProgress);
+    if (r != null || !url.contains('/gapi/apk/')) return r;
+    // зеркало не ответило — пробуем GitHub
+    return _downloadOne('https://github.com/$repo/releases/download/v$version/KOGPK_Schedule_$version.apk', version, onProgress);
+  }
+
+  static Future<String?> _downloadOne(
       String url, String version, void Function(double) onProgress) async {
     try {
       final base = await getExternalStorageDirectory();

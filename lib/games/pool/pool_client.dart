@@ -137,8 +137,10 @@ class PoolClient extends ChangeNotifier {
 
   void send(Map<String, dynamic> m) => _ch?.sink.add(jsonEncode(m));
 
-  void create(String mode, {required bool private}) => send({'t': 'create', 'mode': mode, 'private': private});
-  void withBot(String mode, int level) => send({'t': 'bot', 'mode': mode, 'level': level});
+  void create(String mode, {required bool private, bool realistic = false}) =>
+      send({'t': 'create', 'mode': mode, 'private': private, 'realistic': realistic});
+  void withBot(String mode, int level, {bool realistic = false}) =>
+      send({'t': 'bot', 'mode': mode, 'level': level, 'realistic': realistic});
   void join(String id) => send({'t': 'join', 'room': id});
   void leave() => send({'t': 'leave'});
   void ready() => send({'t': 'ready'});
