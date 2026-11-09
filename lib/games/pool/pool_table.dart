@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../theme.dart';
 import 'pool_client.dart';
@@ -29,6 +30,29 @@ class _Geo {
   }
   Offset scr(double x, double y) => Offset(ox + y * s, oy + (W - x) * s);
   List<double> tab(Offset p) => [W - (p.dy - oy) / s, (p.dx - ox) / s];
+}
+
+/// Мини-шар для плашки игрока: полосатый — белый с цветной полосой.
+class _MiniBall extends StatelessWidget {
+  final int i;
+  final bool filled;
+  const _MiniBall(this.i, {this.filled = true});
+  @override
+  Widget build(BuildContext context) {
+    final col = ballColor('pool', i);
+    return Container(
+      width: 13,
+      height: 13,
+      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: col, width: 1.5)),
+      child: ClipOval(
+        child: Stack(children: [
+          Positioned.fill(child: ColoredBox(color: i > 8 ? _poolColors[0] : (filled ? col : Colors.transparent))),
+          if (i > 8)
+            Positioned(left: 0, right: 0, top: 3, height: 4, child: ColoredBox(color: filled ? col : Colors.transparent)),
+        ]),
+      ),
+    );
+  }
 }
 
 class _Aim {
@@ -58,6 +82,27 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
   DateTime _noteAt = DateTime(2000);
   _Geo? _geo;
 
+  /// Реалистичный режим: без траектории и без подсказок «свой/чужой шар».
+  static bool _realistic = false;
+  static bool _realLoaded = false;
+
+  Future<void> _loadReal() async {
+    if (_realLoaded) return;
+    _realLoaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      _realistic = p.getBool('pool_realistic') ?? false;
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _toggleReal() async {
+    setState(() => _realistic = !_realistic);
+    try {
+      (await SharedPreferences.getInstance()).setBool('pool_realistic', _realistic);
+    } catch (_) {}
+  }
+
   // анимация удара
   Map<String, dynamic>? _shot;
   double _f = 0;
@@ -80,6 +125,7 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
       if (mounted) setState(() {});
     });
     _absorb();
+    _loadReal();
   }
 
   @override
@@ -429,6 +475,11 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
               Expanded(child: _chip(0)),
               const SizedBox(width: 6),
               Expanded(child: _chip(1)),
+              IconButton(
+                tooltip: 'Реалистичный режим',
+                icon: Icon(_realistic ? Icons.visibility_off : Icons.visibility, color: _realistic ? _gold : Colors.white70),
+                onPressed: _toggleReal,
+              ),
             ]),
           ),
         ),
@@ -454,6 +505,7 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
                                   ? _Aim((c.oppAim!['ball'] as num? ?? 0).toInt(), (c.oppAim!['dx'] as num).toDouble(),
                                       (c.oppAim!['dy'] as num).toDouble(), null)
                                   : null,
+                      realistic: _realistic,
                       power: _myTurn ? _power : (c.oppAim?['power'] as num? ?? 0).toDouble(),
                     ),
                   ),
@@ -497,18 +549,13 @@ class _PoolTableScreenState extends State<PoolTableScreen> with SingleTickerProv
       final bl = game['balls'] as List;
       balls = set.isEmpty
           ? const Text('группа не выбрана', style: TextStyle(fontSize: 11, color: Colors.white60))
-          : Wrap(spacing: 2, children: [
-              for (final b in set)
-                Container(
-                  width: 11,
-                  height: 11,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: bl[b] != null ? ballColor('pool', b) : Colors.transparent,
-                    border: Border.all(color: ballColor('pool', b), width: 1.5),
-                  ),
-                ),
-            ]);
+          : _realistic
+              ? Row(children: [
+                  _MiniBall(set.first == 1 ? 3 : 11),
+                  const SizedBox(width: 4),
+                  Text(set.first == 1 ? 'цельные' : 'полосатые', style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                ])
+              : Wrap(spacing: 2, children: [for (final b in set) _MiniBall(b, filled: bl[b] != null)]);
     } else {
       balls = Text('${(game['scores'] as List)[i]} из ${game['need']}', style: const TextStyle(fontSize: 12));
     }
@@ -682,7 +729,8 @@ class _TablePainter extends CustomPainter {
   final List<List<double>?> balls;
   final _Aim? aim;
   final double power;
-  _TablePainter({required this.geo, required this.game, required this.balls, this.aim, this.power = 0});
+  final bool realistic;
+  _TablePainter({required this.geo, required this.game, required this.balls, this.aim, this.power = 0, this.realistic = false});
 
   static final _labels = <String, TextPainter>{};
 
@@ -745,7 +793,7 @@ class _TablePainter extends CustomPainter {
     c.clipPath(Path()..addOval(Rect.fromCircle(center: at, radius: r)));
     if (pool && i > 8) {
       c.drawRect(Rect.fromCircle(center: at, radius: r), Paint()..color = _poolColors[0]);
-      c.drawRect(Rect.fromLTWH(at.dx - r, at.dy - r * 0.55, 2 * r, r * 1.1), Paint()..color = col);
+      c.drawRect(Rect.fromLTWH(at.dx - r, at.dy - r * 0.5, 2 * r, r * 1.0), Paint()..color = col);
     } else {
       c.drawRect(Rect.fromCircle(center: at, radius: r), Paint()..color = col);
     }
@@ -818,6 +866,7 @@ class _TablePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     c.drawLine(ks - u * back, ks - u * (back + len), stick);
     c.drawLine(ks - u * back, ks - u * (back + 6), stick..color = const Color(0xFF2B2B2B));
+    if (realistic) return; // только кий, без траектории
     final line = Paint()
       ..color = Colors.white.withValues(alpha: 0.85)
       ..strokeWidth = 1.5
