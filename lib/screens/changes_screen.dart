@@ -148,7 +148,11 @@ class _ChangesScreenState extends State<ChangesScreen> {
         await NotifService.markSeen(items.first.ts);
       }
       if (!mounted) return;
-      final days = ChangeDay.group(items);
+      // прошедшие дни не показываем: что там меняли, уже никому не нужно
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final days = ChangeDay.group(items)
+        ..removeWhere((d) => d.date != null && d.date!.isBefore(today));
       // при обновлении остаёмся на том же дне, если он никуда не делся
       final keep = _days.isEmpty ? null : _days[_sel.clamp(0, _days.length - 1)].date;
       var sel = keep == null ? -1 : days.indexWhere((d) => d.date == keep);
@@ -214,7 +218,7 @@ class _ChangesScreenState extends State<ChangesScreen> {
           Icon(Icons.check_circle_outline, size: 56, color: AppColors.green),
           SizedBox(height: 12),
           Center(
-              child: Text('За 2 недели изменений не было 👍',
+              child: Text('На ближайшие дни изменений нет 👍',
                   style: TextStyle(color: AppColors.textDim))),
         ]),
       );
