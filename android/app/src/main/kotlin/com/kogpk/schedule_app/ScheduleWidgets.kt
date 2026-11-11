@@ -67,7 +67,14 @@ private fun renderWidget(
     val group = prefs.getString("w_group", "—") ?: "—"
     views.setTextViewText(R.id.w_group, group)
     if (hasUpdated) {
-        val t = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+        // время, когда приложение последний раз получило расписание (а не когда
+        // виджет перерисовался): по нему видно, свежие ли данные
+        val ms = (prefs.getString("w_updated_ms", null) ?: "").toLongOrNull()
+        val t = if (ms == null) "" else {
+            val d = Date(ms)
+            if (ISO.format(d) == todayIso()) SimpleDateFormat("HH:mm", Locale.US).format(d)
+            else SimpleDateFormat("dd.MM", Locale.US).format(d)
+        }
         views.setTextViewText(R.id.w_updated, t)
     }
 

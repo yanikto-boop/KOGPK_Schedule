@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -8,6 +7,7 @@ import 'changes_screen.dart';
 import '../errors.dart';
 import '../pair.dart';
 import '../services/profile.dart';
+import '../services/notif_service.dart';
 import '../games/games_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,7 +16,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
+  bool _busy = false;
+  bool _again = false;
   String? _group;
   List<PairBlock> _today = [];
   // режим преподавателя: пары сегодня кончились/их нет — показываем
@@ -30,16 +33,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+      if (!mounted) return;
+      final now = DateTime.now();
+      // полночь или кончились пары показанного дня — пора показать следующий
+      final rolled = !DateUtils.isSameDay(_now, now) ||
+          (_dayLabel == null &&
+              _today.isNotEmpty &&
+              !_now.isAfter(_today.last.end) &&
+              now.isAfter(_today.last.end));
+      setState(() => _now = now);
+      if (rolled) _load(silent: true);
     });
-    Profile.changed.addListener(_load);
+    Profile.changed.addListener(_onProfile);
     _load();
   }
 
   @override
   void dispose() {
-    Profile.changed.removeListener(_load);
+    WidgetsBinding.instance.removeObserver(this);
+    Profile.changed.removeListener(_onProfile);
     _ticker?.cancel();
     super.dispose();
   }
@@ -49,77 +63,106 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${n.year.toString().padLeft(4, '0')}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final teacher = await Profile.teacher();
-      if (teacher != null) {
-        await _loadTeacher(teacher);
-        return;
-      }
-      final prefs = await SharedPreferences.getInstance();
-      final group = prefs.getString('group');
-      _group = group;
-      _dayLabel = null;
-      if (group == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      final data = await Api.schedule(group);
-      final today = _todayIso();
-      DaySchedule? day;
-      for (final d in data.days) {
-        if (d.date == today) {
-          day = d;
-          break;
-        }
-      }
-      final blocks =
-          day == null ? <PairBlock>[] : PairBlock.ofDay(day, DateTime.now());
+  DateTime? _loadedAt;
+
+  void _onProfile() => _load();
+
+  /// [silent] — фоновое обновление: без экрана «Загрузка…», ошибка не
+  /// затирает уже показанные пары.
+  Future<void> _load({bool silent = false}) async {
+    if (_busy) {
+      _again = true; // профиль сменили посреди загрузки — перечитаем после
+      return;
+    }
+    _busy = true;
+    if (!silent) {
       setState(() {
-        _today = blocks;
-        _loading = false;
+        _loading = true;
+        _error = null;
       });
+    }
+    try {
+      final r = await Profile.loadSchedule();
+      if (!mounted) return;
+      if (r == null) {
+        setState(() {
+          _group = null;
+          _today = [];
+          _dayLabel = null;
+          _loading = false;
+        });
+        return;
+      }
+      _show(r.data, r.label);
+      _loadedAt = DateTime.now();
+      NotifService.refreshUnread();
     } catch (e) {
+      if (!mounted) return;
+      if (silent && _group != null && _error == null) return;
       setState(() {
         _error = friendlyError(e);
         _loading = false;
       });
+    } finally {
+      _busy = false;
+      if (_again) {
+        _again = false;
+        _load(silent: silent);
+      }
     }
   }
 
-  Future<void> _loadTeacher(String teacher) async {
-    final data = await Api.teacher(teacher);
+  /// Сегодняшние пары, пока они не кончились; иначе ближайший день с парами
+  /// и его подпись («Завтра», «понедельник, 16 ноября 2026»).
+  void _show(ScheduleData data, String label) {
     final now = DateTime.now();
     final today = _todayIso();
     var blocks = <PairBlock>[];
-    String? label;
+    var todayBlocks = <PairBlock>[];
+    String? dayLabel;
     for (final d in data.days) {
       if (d.date == null || d.date!.compareTo(today) < 0) continue;
-      final date = DateTime.parse(d.date!);
+      final date = DateTime.tryParse(d.date!);
+      if (date == null) continue;
       final b = PairBlock.ofDay(d, date);
       if (b.isEmpty) continue;
       if (d.date == today) {
+        todayBlocks = b;
         if (now.isAfter(b.last.end)) continue; // сегодня уже всё
         blocks = b;
         break;
       }
       blocks = b;
       final tomorrow = DateTime(now.year, now.month, now.day + 1);
-      label = DateUtils.isSameDay(date, tomorrow)
+      dayLabel = DateUtils.isSameDay(date, tomorrow)
           ? 'Завтра'
           : d.title.split(',').reversed.join(', ').trim();
       break;
     }
     setState(() {
-      _group = Profile.short(teacher);
-      _today = blocks;
-      _dayLabel = label;
+      _group = label;
+      // впереди пар нет вовсе — показываем «Пары закончились» по сегодняшним
+      _today = blocks.isEmpty ? todayBlocks : blocks;
+      _dayLabel = dayLabel;
+      _error = null;
       _loading = false;
     });
+  }
+
+  /// Приложение вернули на экран или наступил новый день — данные могли устареть.
+  void _refreshIfStale() {
+    final at = _loadedAt;
+    if (at == null || _loading) return;
+    final now = DateTime.now();
+    if (!DateUtils.isSameDay(at, now) ||
+        now.difference(at) > const Duration(minutes: 10)) {
+      _load(silent: true);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshIfStale();
   }
 
   @override
@@ -128,11 +171,21 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Главная'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            tooltip: 'Изменения расписания',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const ChangesScreen())),
+          ValueListenableBuilder<bool>(
+            valueListenable: NotifService.unread,
+            builder: (_, unread, _) => IconButton(
+              icon: Badge(
+                isLabelVisible: unread,
+                smallSize: 9,
+                backgroundColor: AppColors.red,
+                child: Icon(unread
+                    ? Icons.notifications_active_outlined
+                    : Icons.notifications_outlined),
+              ),
+              tooltip: 'Изменения расписания',
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const ChangesScreen())),
+            ),
           ),
           if (_group != null)
             Padding(
@@ -181,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return [
         const SizedBox(height: 60),
         _bigCard(
-          label: 'Сегодня пар нет',
+          label: 'Ближайших пар нет',
           value: '🎉',
           sub: 'Отдыхай',
         ),
@@ -246,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : 'Идёт ${current.num} пара · до ${_hm(target)}',
       ));
     } else {
-      widgets.add(_bigCard(label: label, value: '✓', sub: 'До завтра!'));
+      widgets.add(_bigCard(label: label, value: '✓', sub: 'На сегодня всё'));
     }
 
     widgets.add(const SizedBox(height: 16));

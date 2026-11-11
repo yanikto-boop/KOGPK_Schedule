@@ -63,7 +63,17 @@ class _ScheduleDayListState extends State<ScheduleDayList> {
   @override
   void didUpdateWidget(ScheduleDayList old) {
     super.didUpdateWidget(old);
-    if (old.data != widget.data) _selected = _defaultIndex();
+    if (old.data == widget.data) return;
+    // обновили то же расписание — остаёмся на выбранном дне
+    final days = old.data.days;
+    final date = (old.data.title == widget.data.title &&
+            _selected >= 0 &&
+            _selected < days.length)
+        ? days[_selected].date
+        : null;
+    final keep =
+        date == null ? -1 : widget.data.days.indexWhere((d) => d.date == date);
+    _selected = keep >= 0 ? keep : _defaultIndex();
   }
 
   int _defaultIndex() {

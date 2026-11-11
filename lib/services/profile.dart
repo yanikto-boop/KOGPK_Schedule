@@ -11,8 +11,46 @@ class Profile {
   static const _kRole = 'role';
   static const _kTeacher = 'teacher_name';
 
-  /// Растёт при смене режима — экраны в IndexedStack перезагружаются.
+  static const _kSubgroup = 'subgroup';
+
+  /// Растёт при смене режима, группы или подгруппы — экраны в IndexedStack
+  /// перезагружаются.
   static final changed = ValueNotifier<int>(0);
+
+  /// Подгруппа студента: 0 — показывать все, иначе номер (1, 2…).
+  static Future<int> subgroup() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getInt(_kSubgroup) ?? 0;
+  }
+
+  static Future<void> setSubgroup(int n) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kSubgroup, n);
+    changed.value++;
+  }
+
+  /// Студент выбрал другую группу: у неё своя лента изменений.
+  static Future<void> setGroup(String name) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('group', name);
+    await NotifService.resetSeen();
+    changed.value++;
+  }
+
+  /// Расписание текущего профиля: преподавателя либо группы (с учётом
+  /// подгруппы). null — группа ещё не выбрана.
+  static Future<({ScheduleData data, String label, bool teacher})?>
+      loadSchedule() async {
+    final t = await teacher();
+    if (t != null) {
+      return (data: await Api.teacher(t), label: short(t), teacher: true);
+    }
+    final p = await SharedPreferences.getInstance();
+    final g = p.getString('group');
+    if (g == null || g.isEmpty) return null;
+    final data = (await Api.schedule(g)).forSubgroup(p.getInt(_kSubgroup) ?? 0);
+    return (data: data, label: g, teacher: false);
+  }
 
   /// ФИО, если включён режим преподавателя, иначе null.
   static Future<String?> teacher() async {

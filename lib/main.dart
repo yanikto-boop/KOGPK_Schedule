@@ -34,6 +34,7 @@ class ScheduleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Расписание КОГПК',
       debugShowCheckedModeBanner: false,
+      navigatorKey: NotifService.navKey,
       theme: buildTheme(),
       home: const RootScreen(),
     );

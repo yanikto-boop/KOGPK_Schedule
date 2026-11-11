@@ -32,7 +32,9 @@ class WidgetService {
     return v;
   }
 
-  static Future<void> update(ScheduleData data, String group) async {
+  /// [fresh] == false — данные из офлайн-кэша: отметку «обновлено» не трогаем.
+  static Future<void> update(ScheduleData data, String group,
+      {bool fresh = true}) async {
     final today = _todayIso();
     final days = <Map<String, dynamic>>[];
 
@@ -74,6 +76,10 @@ class WidgetService {
     }
 
     await HomeWidget.saveWidgetData<String>('w_group', group);
+    if (fresh) {
+      await HomeWidget.saveWidgetData<String>(
+          'w_updated_ms', DateTime.now().millisecondsSinceEpoch.toString());
+    }
     await HomeWidget.saveWidgetData<String>('w_days', jsonEncode(days));
 
     final timeline = CountdownTimeline.build(data.days, DateTime.now());

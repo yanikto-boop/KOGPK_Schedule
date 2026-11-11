@@ -25,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _tapCount = 0;
   bool _notif = true;
   String? _teacher; // режим преподавателя
+  int _subgroup = 0; // 0 — все подгруппы
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
@@ -48,7 +49,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadRole() async {
     final t = await Profile.teacher();
-    if (mounted) setState(() => _teacher = t);
+    final sg = await Profile.subgroup();
+    if (mounted) {
+      setState(() {
+        _teacher = t;
+        _subgroup = sg;
+      });
+    }
   }
 
   Future<void> _chooseRole() async {
@@ -96,6 +103,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (name != null) await Profile.setTeacher(name);
   }
 
+  Future<void> _chooseSubgroup() async {
+    final n = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            const Text('Моя подгруппа',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 6, 20, 4),
+              child: Text(
+                  'Пары другой подгруппы пропадут из расписания, Главной, '
+                  'виджетов и таймера.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textDim, fontSize: 13)),
+            ),
+            for (final (v, t) in const [
+              (0, 'Показывать все подгруппы'),
+              (1, '1 подгруппа'),
+              (2, '2 подгруппа'),
+            ])
+              ListTile(
+                title: Text(t),
+                trailing: _subgroup == v
+                    ? const Icon(Icons.check, color: AppColors.primary)
+                    : null,
+                onTap: () => Navigator.pop(ctx, v),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (n != null && n != _subgroup) await Profile.setSubgroup(n);
+  }
+
   void _onVersionTap() {
     final now = DateTime.now();
     if (now.difference(_lastTap) > const Duration(seconds: 2)) {
@@ -134,7 +182,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (pw == null || pw.isEmpty) return;
-    final ok = await Api.adminLogin(pw);
+    final bool ok;
+    try {
+      ok = await Api.adminLogin(pw);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Нет связи с сервером')));
+      return;
+    }
     if (!mounted) return;
     if (ok) {
       Navigator.push(context,
@@ -249,6 +305,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? 'Преподаватель · ${Profile.short(_teacher!)}'
                   : 'Студент · нажмите, если вы преподаватель',
               onTap: _chooseRole),
+          if (_teacher == null)
+            _tile(Icons.groups_2_outlined, 'Подгруппа',
+                subtitle: _subgroup == 0
+                    ? 'Показываются все · выбери свою'
+                    : '$_subgroup подгруппа',
+                onTap: _chooseSubgroup),
           _tile(Icons.sync_alt, 'Изменения расписания',
               subtitle: _teacher != null
                   ? 'Что поменялось в ваших парах'

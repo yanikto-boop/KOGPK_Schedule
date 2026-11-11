@@ -26,6 +26,7 @@ class BusWidget : HomeWidgetProvider() {
     ) {
         val sid = widgetData.getInt("bus_widget_sid", -1)
         val name = widgetData.getString("bus_widget_name", null)
+        val toFetch = ArrayList<Int>()
 
         for (id in appWidgetIds) {
             val views = RemoteViews(context.packageName, R.layout.widget_bus)
@@ -63,27 +64,50 @@ class BusWidget : HomeWidgetProvider() {
             }
 
             appWidgetManager.updateAppWidget(id, views) // мгновенный каркас
-            fetchAndRender(context, appWidgetManager, id, sid, name)
+            toFetch.add(id)
         }
+        if (toFetch.isEmpty()) return
+        // goAsync: без него система вправе убить процесс сразу после onReceive,
+        // не дождавшись ответа сервера
+        val pending = try { goAsync() } catch (e: Exception) { null }
+        val left = java.util.concurrent.atomic.AtomicInteger(toFetch.size)
+        for (id in toFetch) {
+            fetchAndRender(context, appWidgetManager, id, sid, name) {
+                if (left.decrementAndGet() == 0) {
+                    try { pending?.finish() } catch (e: Exception) {}
+                }
+            }
+        }
+    }
+
+    /** Прогноз с основного адреса, при неудаче — с запасного. */
+    private fun loadForecast(sid: Int): JSONArray? {
+        for (base in listOf("https://kpk-rsp.space/sapi", "https://api.ndhbh-relay.space/sapi")) {
+            try {
+                val conn = (URL("$base/bus/forecast?sid=$sid").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 4000; readTimeout = 4000
+                    setRequestProperty("User-Agent", "KOGPKScheduleWidget")
+                }
+                try {
+                    if (conn.responseCode != 200) continue
+                    val body = conn.inputStream.bufferedReader().readText()
+                    return org.json.JSONObject(body).optJSONArray("forecasts") ?: JSONArray()
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: Exception) {
+            }
+        }
+        return null
     }
 
     private fun fetchAndRender(
         context: Context, mgr: AppWidgetManager, id: Int, sid: Int, name: String?,
+        onDone: () -> Unit,
     ) {
         Thread {
-            val items = try {
-                val url = URL("https://kpk-rsp.space/sapi/bus/forecast?sid=$sid")
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000; readTimeout = 8000
-                    setRequestProperty("User-Agent", "KOGPKScheduleWidget")
-                }
-                val body = conn.inputStream.bufferedReader().readText()
-                conn.disconnect()
-                val obj = org.json.JSONObject(body)
-                obj.optJSONArray("forecasts") ?: JSONArray()
-            } catch (e: Exception) {
-                null
-            }
+          try {
+            val items = loadForecast(sid)
 
             val views = RemoteViews(context.packageName, R.layout.widget_bus)
             views.setTextViewText(R.id.bus_stop, name ?: "Остановка")
@@ -130,6 +154,10 @@ class BusWidget : HomeWidgetProvider() {
                 }
             }
             mgr.updateAppWidget(id, views)
+          } catch (e: Exception) {
+          } finally {
+            onDone()
+          }
         }.start()
     }
 }

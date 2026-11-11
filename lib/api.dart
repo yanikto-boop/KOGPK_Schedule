@@ -81,11 +81,8 @@ class Api {
   }
 
   static Future<JournalData> journal(String ticketId) async {
-    final resp = await _c
-        .post(Uri.parse('$base/journal'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'ticket_id': ticketId}))
-        .timeout(const Duration(seconds: 55));
+    final resp = await _post('/journal', {'ticket_id': ticketId},
+        timeout: const Duration(seconds: 55));
     if (resp.statusCode != 200) {
       throw ApiException(_msg(resp));
     }
@@ -146,11 +143,8 @@ class Api {
 
   static Future<({String paymentId, String url})> donateCreate(
       int amount) async {
-    final resp = await _c
-        .post(Uri.parse('$base/donate'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'amount': amount}))
-        .timeout(const Duration(seconds: 25));
+    final resp = await _post('/donate', {'amount': amount},
+        timeout: const Duration(seconds: 25));
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
     final m = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     return (
@@ -161,7 +155,7 @@ class Api {
 
   static Future<({String status, double raised, double goal})> donateCheck(
       String paymentId) async {
-    final r = await _get('/donate/check?payment_id=$paymentId');
+    final r = await _get('/donate/check?payment_id=${Uri.encodeQueryComponent(paymentId)}');
     return (
       status: r['status'].toString(),
       raised: (r['raised'] as num).toDouble(),
@@ -171,26 +165,23 @@ class Api {
 
   // ── admin ──
   static Future<bool> adminLogin(String password) async {
-    final resp = await _c.post(Uri.parse('$base/admin/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'password': password}));
+    final resp = await _post('/admin/login', {'password': password},
+        timeout: const Duration(seconds: 20));
+    if (resp.statusCode >= 500) throw ApiException('Ошибка ${resp.statusCode}');
     return resp.statusCode == 200;
   }
 
   static Future<Map<String, dynamic>> adminStatus(String password) async {
-    final resp = await _c.get(Uri.parse('$base/admin/status'),
-        headers: {'X-Admin-Password': password});
+    final resp = await _c.get(Uri.parse('$_pref/admin/status'),
+        headers: {'X-Admin-Password': password}).timeout(const Duration(seconds: 20));
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
     return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
   }
 
   static Future<void> adminRefresh(String password, String target) async {
-    final resp = await _c.post(Uri.parse('$base/admin/refresh'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Admin-Password': password
-        },
-        body: jsonEncode({'target': target}));
+    final resp = await _post('/admin/refresh', {'target': target},
+        headers: {'X-Admin-Password': password},
+        timeout: const Duration(seconds: 30));
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
   }
 
@@ -245,13 +236,44 @@ class Api {
     };
 
     run(first);
-    Timer(const Duration(milliseconds: 2500), () {
+    final hedge = Timer(const Duration(milliseconds: 2500), () {
       if (!secondStarted && !done.isCompleted) {
         secondStarted = true;
         run(second);
       }
     });
-    return done.future;
+    return done.future.whenComplete(hedge.cancel);
+  }
+
+  /// POST с запасным адресом: сначала тот, что отвечал последним; если до него
+  /// не достучались или он ответил 5xx — второй. Не параллельно, чтобы запрос
+  /// (например, создание платежа) не выполнился дважды.
+  static Future<http.Response> _post(String path, Map<String, dynamic> body,
+      {Map<String, String> headers = const {},
+      Duration timeout = const Duration(seconds: 25)}) async {
+    final first = _pref;
+    final second = first == base ? baseAlt : base;
+    Object? err;
+    http.Response? bad;
+    for (final b in [first, second]) {
+      try {
+        final r = await _c
+            .post(Uri.parse('$b$path'),
+                headers: {'Content-Type': 'application/json', ...headers},
+                body: jsonEncode(body))
+            .timeout(timeout);
+        if (r.statusCode >= 500) {
+          bad = r;
+          continue;
+        }
+        _pref = b;
+        return r;
+      } catch (e) {
+        err = e;
+      }
+    }
+    if (bad != null) return bad;
+    throw err ?? ApiException('Нет связи с сервером');
   }
 
   static Future<Map<String, dynamic>> _get(String path) async {
@@ -274,8 +296,10 @@ class Api {
     }
     if (resp.statusCode != 200) throw ApiException(_msg(resp));
     final body = utf8.decode(resp.bodyBytes);
-    offline.value = false;
+    // плашку «нет сети» снимает только свежий ответ того же рода, что лежит
+    // в кэше: живые автобусы не значат, что расписание на экране обновилось
     if (cache) {
+      offline.value = false;
       _cacheFile(path).then((f) => f.writeAsString(body)).catchError((_) => File(''));
     }
     return jsonDecode(body) as Map<String, dynamic>;
@@ -357,6 +381,29 @@ class ScheduleData {
   final String title; // имя группы или преподавателя
   final List<DaySchedule> days;
   ScheduleData(this.title, this.days);
+
+  /// Номер подгруппы из названия предмета: «Информатика  (2 гр.)» -> 2.
+  /// null — пара общая для всей группы.
+  static int? subgroupOf(String subject) {
+    final m = RegExp(r'\((\d)\s*гр\.?\)').firstMatch(subject);
+    return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
+  /// Расписание глазами студента подгруппы [n]: пары чужой подгруппы убраны.
+  /// [n] == 0 — без фильтра.
+  ScheduleData forSubgroup(int n) {
+    if (n <= 0) return this;
+    return ScheduleData(title, [
+      for (final d in days)
+        DaySchedule(d.title, d.date, [
+          for (final l in d.lessons)
+            Lesson(l.num, l.time, [
+              for (final s in l.subgroups)
+                if ((subgroupOf(s.subject) ?? n) == n) s
+            ])
+        ])
+    ]);
+  }
 
   factory ScheduleData.fromJson(Map<String, dynamic> j,
       {bool teacherMode = false}) {
@@ -444,9 +491,19 @@ int _asInt(Object? v) => v is int ? v : (v is double ? v.toInt() : 0);
 double _asDouble(Object? v) =>
     v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
 
+/// Одна строка «было → стало» внутри изменения.
+class ChangeField {
+  final String label; // «Время», «Кабинет», «Преподаватель», «Предмет»
+  final String before; // пусто, если поле просто перечислено (добавлена/удалена пара)
+  final String after;
+  const ChangeField(this.label, this.before, this.after);
+}
+
+enum ChangeKind { edited, added, removed, other }
+
 class ScheduleChange {
   final String ts; // ISO время обнаружения
-  final String text;
+  final String text; // сырой текст (как в Telegram-боте)
   final String groupName;
   ScheduleChange(this.ts, this.text, this.groupName);
   factory ScheduleChange.fromJson(Map<String, dynamic> j) => ScheduleChange(
@@ -454,6 +511,114 @@ class ScheduleChange {
         (j['text'] ?? '').toString(),
         (j['group_name'] ?? '').toString(),
       );
+
+  static const _months = {
+    'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+    'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11,
+    'декабря': 12,
+  };
+
+  late final List<String> _lines =
+      text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+
+  String _line(String emoji) {
+    for (final l in _lines) {
+      if (l.startsWith(emoji)) return l.substring(emoji.length).trim();
+    }
+    return '';
+  }
+
+  late final ChangeKind kind = () {
+    final h = _lines.isEmpty ? '' : _lines.first.toLowerCase();
+    if (h.contains('добавлен')) return ChangeKind.added;
+    if (h.contains('удален') || h.contains('удалён') || h.contains('снят') || h.contains('отмен')) {
+      return ChangeKind.removed;
+    }
+    if (h.contains('изменени')) return ChangeKind.edited;
+    return ChangeKind.other;
+  }();
+
+  /// «12 ноября 2026, четверг» — как пришло с сервера ('' если строки нет).
+  late final String dayTitle = _line('📅');
+
+  /// Учебный день, которого касается изменение.
+  late final DateTime? day = () {
+    final m = RegExp(r'(\d{1,2})\s+([а-яё]+)\s+(\d{4})')
+        .firstMatch(dayTitle.toLowerCase());
+    if (m == null) return null;
+    final mon = _months[m.group(2)!];
+    if (mon == null) return null;
+    return DateTime(int.parse(m.group(3)!), mon, int.parse(m.group(1)!));
+  }();
+
+  /// «среда», если есть в заголовке дня.
+  late final String weekday = dayTitle.contains(',')
+      ? dayTitle.split(',').last.trim().toLowerCase()
+      : '';
+
+  /// Номер пары: «5».
+  late final String pairNum =
+      RegExp(r'\d+').firstMatch(_line('🔢'))?.group(0) ?? '';
+
+  /// Время пары, если указано в строке номера («8 пара | 12:40 - 13:10 …»).
+  late final String pairTime = () {
+    final l = _line('🔢');
+    final i = l.indexOf('|');
+    return i < 0 ? '' : l.substring(i + 1).trim();
+  }();
+
+  /// Группа из строки номера («3 пара, 👥 ЗЧС-26») — так пишет лента преподавателя.
+  late final String pairGroup =
+      RegExp(r'👥\s*(.+)$').firstMatch(_line('🔢'))?.group(1)?.trim() ?? '';
+
+  /// Те же правки одной пары, сведённые к итогу: [fields] — «было в начале →
+  /// стало сейчас». Текст собирается в формате сервера, чтобы разбор был один.
+  ScheduleChange withFields(List<ChangeField> fields) {
+    const emoji = {'Предмет': '📚', 'Кабинет': '🚪', 'Преподаватель': '👤', 'Время': '⏰', 'Группа': '👥'};
+    final b = StringBuffer()
+      ..writeln(_lines.isEmpty ? '✏️ Изменение в паре' : _lines.first)
+      ..writeln('📅 $dayTitle')
+      ..writeln('🔢 $pairNum пара${pairGroup.isEmpty ? '' : ', 👥 $pairGroup'}');
+    for (final f in fields) {
+      if (f.label == 'Группа' && f.before.isEmpty) continue;
+      b.writeln('${emoji[f.label] ?? '📚'} ${f.label}: ${f.before} → ${f.after}');
+    }
+    return ScheduleChange(ts, b.toString().trim(), groupName);
+  }
+
+  /// Поля изменения: «Время: было → стало» либо просто значения пары.
+  late final List<ChangeField> fields = () {
+    const plain = {'📚': 'Предмет', '🚪': 'Кабинет', '👤': 'Преподаватель', '⏰': 'Время', '👥': 'Группа'};
+    final out = <ChangeField>[
+      if (pairGroup.isNotEmpty) ChangeField('Группа', '', pairGroup),
+    ];
+    for (final l in _lines.skip(1)) {
+      if (l.startsWith('📅') || l.startsWith('🔢')) continue;
+      String? label;
+      var rest = l;
+      for (final e in plain.entries) {
+        if (l.startsWith(e.key)) {
+          label = e.value;
+          rest = l.substring(e.key.length).trim();
+          break;
+        }
+      }
+      final colon = rest.indexOf(':');
+      // «Время: 08:00 → 09:00» — подпись до первого двоеточия, если она словом
+      if (colon > 0 && RegExp(r'^[А-Яа-яЁё ]+$').hasMatch(rest.substring(0, colon))) {
+        label = rest.substring(0, colon).trim();
+        rest = rest.substring(colon + 1).trim();
+      }
+      final arrow = rest.indexOf('→');
+      if (arrow >= 0) {
+        out.add(ChangeField(label ?? '', rest.substring(0, arrow).trim(),
+            rest.substring(arrow + 1).trim()));
+      } else {
+        out.add(ChangeField(label ?? '', '', rest));
+      }
+    }
+    return out;
+  }();
 }
 
 class BusRoute {
@@ -591,12 +756,23 @@ class JournalData {
     return JournalData((j['ticket_id'] ?? '').toString(), cached, subjects);
   }
 
+  /// Оценки из ячейки журнала: «5», «5/4», «4 5» -> [5], [5, 4], [4, 5].
+  /// Нечисловые отметки («зач», «н/а») оценками не считаются.
+  static List<int> gradesIn(String cell) {
+    final c = cell.trim();
+    if (c.isEmpty || !RegExp(r'^[\d\s/,;.+\-]+$').hasMatch(c)) return const [];
+    return RegExp(r'\d+')
+        .allMatches(c)
+        .map((m) => int.parse(m.group(0)!))
+        .where((g) => g >= 1 && g <= 5)
+        .toList();
+  }
+
   double get overallAvg {
     final nums = <int>[];
     for (final s in subjects) {
       for (final e in s.entries) {
-        final g = int.tryParse(e.grade);
-        if (g != null) nums.add(g);
+        nums.addAll(gradesIn(e.grade));
       }
     }
     if (nums.isEmpty) return 0;

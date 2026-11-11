@@ -69,27 +69,37 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _load() async {
     final teacher = _teacher;
     if (_selected == null && teacher == null) return;
+    // потянули вниз при уже показанном расписании — список не прячем
+    final refresh = _data != null;
     setState(() {
-      _loading = true;
+      _loading = !refresh;
       _error = null;
     });
     try {
       final data = teacher != null
           ? await Api.teacher(teacher)
-          : await Api.schedule(_selected!);
+          : (await Api.schedule(_selected!))
+              .forSubgroup(await Profile.subgroup());
+      if (!mounted) return;
       setState(() {
         _data = data;
         _loading = false;
       });
       // обновляем виджеты на главном экране (не блокируем UI)
       WidgetService.update(
-              data, teacher != null ? Profile.short(teacher) : _selected!)
+              data, teacher != null ? Profile.short(teacher) : _selected!,
+              fresh: !Api.offline.value)
           .catchError((_) {});
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = friendlyError(e);
         _loading = false;
       });
+      if (refresh) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Не удалось обновить. ${friendlyError(e).split('\n').first}')));
+      }
     }
   }
 
@@ -103,10 +113,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       builder: (_) => _GroupPicker(groups: _groups, selected: _selected),
     );
     if (picked != null && picked != _selected) {
-      _selected = picked;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('group', picked);
-      await _load();
+      // оповещает все вкладки (Главную тоже) — эта перезагрузится через _init
+      await Profile.setGroup(picked);
     }
   }
 

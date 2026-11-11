@@ -27,7 +27,9 @@ class UpdateService {
         Uri.parse('https://api.github.com/repos/$repo/releases/latest'),
         headers: {'Accept': 'application/vnd.github+json'},
       ).timeout(const Duration(seconds: 10));
-      if (resp.statusCode != 200) return null;
+      // у api.github.com лимит 60 запросов в час на IP — в общем Wi-Fi он
+      // выбивается; тогда узнаём версию по редиректу страницы релиза
+      if (resp.statusCode != 200) return await _checkByRedirect(current);
 
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final tag = (data['tag_name'] ?? '').toString();
@@ -53,7 +55,37 @@ class UpdateService {
         downloadUrl: url,
       );
     } catch (_) {
+      try {
+        final info = await PackageInfo.fromPlatform();
+        return await _checkByRedirect(info.version);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  /// github.com/…/releases/latest отвечает редиректом на …/releases/tag/vX.Y.Z —
+  /// без API и его лимитов. Описания релиза тут нет.
+  static Future<AppUpdate?> _checkByRedirect(String current) async {
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', Uri.parse(releasesPage))
+        ..followRedirects = false;
+      final resp = await client.send(req).timeout(const Duration(seconds: 10));
+      final loc = resp.headers['location'] ?? '';
+      final m = RegExp(r'/releases/tag/([^/?#]+)').firstMatch(loc);
+      if (m == null) return null;
+      final latest = _normalize(Uri.decodeComponent(m.group(1)!));
+      if (latest.isEmpty || !_isNewer(latest, current)) return null;
+      return AppUpdate(
+        version: latest,
+        notes: '',
+        downloadUrl: 'https://kpk-rsp.space/gapi/apk/KOGPK_Schedule_$latest.apk',
+      );
+    } catch (_) {
       return null;
+    } finally {
+      client.close();
     }
   }
 
